@@ -19,6 +19,8 @@ export const bankPaths = {
   researchRequest: "/api/research/request",
   /** GET `?q=…`: a {@link SearchResponse} over the bank, notes, Sources, and transcripts. */
   search: "/api/search",
+  /** The MCP endpoint of hidden Research sessions: only the Research tools. */
+  researchMcp: "/mcp/research",
 } as const;
 
 export const sourceKindLabels = {

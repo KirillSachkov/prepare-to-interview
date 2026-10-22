@@ -5,12 +5,15 @@ import { bankPaths, searchKinds, type ReviewRequest, type SearchResponse } from 
 import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import type { Bank } from "../domain/bank.ts";
 import { DomainError } from "../domain/domain.ts";
+import type { McpHandler } from "../mcp/handler.ts";
 import type { Search } from "../search/search.ts";
 
 export interface BankRouteDeps {
   bank: Bank;
   search: Search;
   chat: Chat;
+  /** MCP endpoint of hidden Research sessions, with only the Research tools. */
+  researchMcp: McpHandler;
 }
 
 const reviewRequest = z.strictObject({
@@ -31,6 +34,7 @@ export const researchRequestMessage = "Хочу, чтобы ты исследо�
 const busyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
 
 export function registerBankRoutes(app: Hono, deps: BankRouteDeps): void {
+  app.post(bankPaths.researchMcp, (c) => deps.researchMcp(c.req.raw));
   app.get(bankPaths.skillMap, (c) => c.json(deps.bank.skillMap()));
   app.get(bankPaths.topic(":id"), (c) => domainResult(() => c.json(deps.bank.topicDetail(c.req.param("id") ?? ""))));
   app.get(bankPaths.bank, (c) => c.json(deps.bank.bank()));

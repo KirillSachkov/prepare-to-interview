@@ -64,7 +64,9 @@ WHEN new.role <> 'notice' AND new.status IN ('complete', 'cancelled') AND new.te
 	);
 END;
 --> statement-breakpoint
-CREATE TRIGGER `chat_search_update` AFTER UPDATE OF text, status ON `chat_messages` BEGIN
+-- A streaming reply is saved every second; it is indexed once it stops streaming.
+CREATE TRIGGER `chat_search_update` AFTER UPDATE OF text, status ON `chat_messages`
+WHEN old.status <> 'streaming' OR new.status <> 'streaming' BEGIN
 	DELETE FROM `search_index` WHERE kind = 'transcript' AND ref = old.id;
 	INSERT INTO `search_index` (kind, ref, title, body, topic)
 	SELECT 'transcript', new.id, '', replace(replace(new.text, 'ё', 'е'), 'Ё', 'Е'), ''

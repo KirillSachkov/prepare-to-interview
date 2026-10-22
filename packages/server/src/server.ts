@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve, type ServerType } from "@hono/node-server";
 import { WebSocketServer } from "ws";
-import { apiPaths, tokenQueryParam, type AgentId } from "@prepare-to-interview/shared";
+import { apiPaths, bankPaths, tokenQueryParam, type AgentId } from "@prepare-to-interview/shared";
 import { AcpDriver } from "./agent/acp-driver.ts";
 import { detectInstalledAgents, findOnPath, type AgentDetector } from "./agent/detect.ts";
 import type { AgentDriver, McpServerConfig } from "./agent/driver.ts";
@@ -20,7 +20,7 @@ import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
-import { createResearchTools } from "./mcp/research-tools.ts";
+import { createResearchTools, researchSessionTools } from "./mcp/research-tools.ts";
 import { createTools } from "./mcp/tools.ts";
 import { Researcher } from "./interviewer/researcher.ts";
 import { ResearchArchive } from "./research/archive.ts";
@@ -76,13 +76,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
   const mcpServers: McpServerConfig[] = [];
+  const researchMcpServers: McpServerConfig[] = [];
   const interviewer = new Interviewer({
     contentDir,
     domain,
     practice,
     mcpServers: () => mcpServers,
     now,
-    turnContext: [{ take: () => late.researcher?.pendingContext() ?? { blocks: [], sent: () => undefined } }],
+    turnContext: [{ take: () => late.researcher?.takeResults() ?? { blocks: [], sent: () => undefined } }],
     research: () => ({ running: late.researcher?.running ?? false, proposed_waiting: bank.proposedCount() }),
   });
   const drivers = cachedDrivers(options.drivers ?? acpDrivers(dataDir.root));
@@ -104,11 +105,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     settings,
     drivers: drivers.get,
     contentDir,
-    mcpServers: () => mcpServers,
+    mcpServers: () => researchMcpServers,
     post: (text) => chat.post(text),
   });
   late.researcher = research;
 
+  const researchTools = createResearchTools({ domain, bank, archive, search, researcher: research });
   const app = createApp({
     token: dataDir.token,
     allowedHosts: () => allowedHosts,
@@ -121,10 +123,17 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
     mcp: createMcpHandler(
-      [...createTools({ domain, practice, interviewer }), ...createResearchTools({ domain, bank, archive, search, researcher: research })],
+      [...createTools({ domain, practice, interviewer }), ...researchTools],
       appVersion,
     ),
-    bankRoutes: { bank, search },
+    bankRoutes: {
+      bank,
+      search,
+      researchMcp: createMcpHandler(
+        researchTools.filter((t) => researchSessionTools.includes(t.name)),
+        appVersion,
+      ),
+    },
     clientDir: options.clientDir ?? defaultClientDir,
   });
 
@@ -148,6 +157,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     headers: [{ name: "Authorization", value: `Bearer ${dataDir.token}` }],
   };
   mcpServers.push(mcpServer);
+  researchMcpServers.push({ ...mcpServer, url: origin + bankPaths.researchMcp });
 
   return {
     url: `${origin}/?${tokenQueryParam}=${dataDir.token}`,

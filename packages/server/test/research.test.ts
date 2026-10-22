@@ -192,6 +192,10 @@ describe("Proposed queue", () => {
     queue = await proposed(h);
     expect(queue.batches[0]!.questions.map((q) => q.prompt)).toEqual(["Когда кэш в Redis вредит?"]);
 
+    // Questions in a Topic the Candidate rejected for the target are not proposed again.
+    const again = await h.call("propose_questions", { questions: [{ topic: "kafka", prompt: "Зачем нужны партиции?", reference_answer: "Для параллелизма.", source_ids: [sourceId] }] });
+    expect(again.data.questions).toEqual([expect.objectContaining({ outcome: "topic_rejected", question_id: null })]);
+
     expect((await api(h.server, bankPaths.review, { body: { action: "approve", all: true } })).body).toEqual({ approved: 2, rejected: 0, proposed: 0 });
     expect((await skillMap(h)).topics.map((t) => t.name)).toEqual(["PostgreSQL", "Go concurrency", "Redis"]);
     const bank = await get<BankResponse>(h.server, bankPaths.bank);
@@ -226,12 +230,12 @@ describe("Proposed queue", () => {
     const queue = await proposed(h);
     expect(queue.batches[0]!.questions).toHaveLength(1);
     expect(queue.batches[0]!.questions[0]!.sources.map((s) => s.id).sort()).toEqual([first, second].sort());
-    // The active bank Question got the Source and the missing Reference answer.
+    // The active bank Question got the Source; its content stays the Candidate's.
     const postgres = (await skillMap(h)).topics.find((t) => t.name === "PostgreSQL")!;
     const detail = await get<TopicDetailResponse>(h.server, bankPaths.topic(postgres.topicId));
     const merged = detail.questions.find((q) => q.id === ownId)!;
     expect(merged.sources.map((s) => s.id)).toEqual([first]);
-    expect(merged.referenceAnswer).toContain("B-tree");
+    expect(merged.referenceAnswer).toBeNull();
     // "Базы данных" was only named by a merged duplicate: nothing about it waits for review.
     expect(queue.batches[0]!.topics).toEqual([]);
   });
@@ -275,6 +279,12 @@ describe("Research archive and search", () => {
     const updated = await h.call("save_note", { title: "PostgreSQL: индексы", body: "Обновлено: ещё BRIN.", source_ids: [await archive(h, "BRIN для больших таблиц.")] });
     expect(updated.data).toMatchObject({ updated: true, sources: 2, slug: note.data.slug });
     expect((await h.call("save_note", { title: "Без ссылок", body: "Текст", source_ids: ["nope"] })).isError).toBe(true);
+    // Titles that share a slug keep separate notes.
+    const cpp = await h.call("save_note", { title: "C++: память", body: "RAII.", source_ids: [sourceId] });
+    const csharp = await h.call("save_note", { title: "C#: память", body: "GC.", source_ids: [sourceId] });
+    expect(csharp.data.updated).toBe(false);
+    expect(csharp.data.slug).not.toBe(cpp.data.slug);
+    expect(fs.readFileSync(path.join(h.dataDir, "research", cpp.data.path as string), "utf8")).toContain("RAII.");
   });
 
   it("returns ranked hits in Russian and English over Questions, Reference answers, notes, Sources, and transcripts", async () => {
@@ -333,6 +343,15 @@ describe("Research Activity", () => {
     expect(session.config.persona).toContain("Market guide: the Russian-speaking IT market");
     expect(session.config.allowedBuiltins).toEqual(["web_fetch", "web_search"]);
     expect(session.config.mcpServers.map((s) => s.name)).toEqual(["interview"]);
+    // The hidden session gathers and proposes; it cannot approve or touch the Chat's work.
+    const researchClient = new Client({ name: "research-agent", version: "0.0.0" });
+    const researchServer = session.config.mcpServers[0]!;
+    await researchClient.connect(
+      new StreamableHTTPClientTransport(new URL(researchServer.url), { requestInit: { headers: Object.fromEntries(researchServer.headers.map((x) => [x.name, x.value])) } }),
+    );
+    cleanups.push(() => researchClient.close());
+    expect((await researchClient.listTools()).tools.map((t) => t.name).sort()).toEqual(["archive_source", "propose_questions", "save_note", "search"]);
+    expect((await researchClient.callTool({ name: "review_proposed", arguments: { action: "approve", all: true } })).isError).toBe(true);
     // The brief fences the vacancy and the Candidate's material as archived data.
     expect(session.input.text).toContain("<focus>\nPostgreSQL для Middle\n</focus>");
     expect(session.input.text).toMatch(/<source_data source_id="[\w-]+" kind="vacancy: Go-разработчик в финтех">\nТребования: PostgreSQL, индексы, транзакции, Kafka\.\n<\/source_data>/);

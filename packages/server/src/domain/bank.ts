@@ -73,10 +73,11 @@ export interface ProposeResult {
   questions: {
     prompt: string;
     topic: string;
-    outcome: "proposed" | "merged" | "rejected_before";
-    questionId: string;
+    /** `topic_rejected`: the Candidate rejected the Question's Topic for this target, so it is not proposed. */
+    outcome: "proposed" | "merged" | "rejected_before" | "topic_rejected";
+    questionId: string | null;
     /** Status of the bank Question a duplicate merged into. */
-    status: "proposed" | "active" | "rejected";
+    status: "proposed" | "active" | "rejected" | null;
   }[];
 }
 
@@ -97,9 +98,11 @@ export class Bank {
 
   /**
    * Adds Research output as Proposed. A Question whose prompt matches one already in the bank
-   * (case, punctuation, and ё/е aside) is merged into it: its Sources join the bank Question and
-   * missing fields are filled. A Question the Candidate rejected before is not proposed again. A
-   * Topic outside the target is proposed for it, also when only a Question names it.
+   * (case, punctuation, and ё/е aside) is merged into it: its Sources join the bank Question, and a
+   * Proposed one gets its missing fields filled; an active Question keeps its content, which only
+   * the Candidate changes. A Question the Candidate rejected before, or one in a Topic they rejected
+   * for the target, is not proposed again. A Topic outside the target is proposed for it, also when
+   * only a Question names it.
    */
   propose(input: ProposeInput): ProposeResult {
     for (const q of input.questions) {
@@ -127,10 +130,8 @@ export class Bank {
         const key = dedupeKey(q.prompt);
         const existing = keys.get(key);
         if (existing) {
-          if (existing.status !== "rejected") {
-            linkQuestionSources(tx, existing.id, q.sourceIds);
-            fill(tx, existing.id, q);
-          }
+          if (existing.status !== "rejected") linkQuestionSources(tx, existing.id, q.sourceIds);
+          if (existing.status === "proposed") fill(tx, existing.id, q);
           out.questions.push({
             prompt: existing.prompt,
             topic: topicName(tx, existing.topicId),
@@ -138,6 +139,11 @@ export class Bank {
             questionId: existing.id,
             status: existing.status,
           });
+          continue;
+        }
+        // A Question in a Topic the target lacks brings the Topic along as Proposed.
+        if (this.#proposeTopic(tx, input, topicId, "medium", null).outcome === "rejected_before") {
+          out.questions.push({ prompt: q.prompt, topic: topicName(tx, topicId), outcome: "topic_rejected", questionId: null, status: null });
           continue;
         }
         const id = crypto.randomUUID();
@@ -160,8 +166,6 @@ export class Bank {
           .run();
         linkQuestionSources(tx, id, q.sourceIds);
         keys.set(key, { id, prompt: q.prompt, topicId, status: "proposed" });
-        // A Question in a Topic the target lacks brings the Topic along as Proposed.
-        this.#proposeTopic(tx, input, topicId, "medium", null);
         out.questions.push({ prompt: q.prompt, topic: topicName(tx, topicId), outcome: "proposed", questionId: id, status: "proposed" });
       }
       return out;
@@ -251,29 +255,30 @@ export class Bank {
 
   /**
    * Approves or rejects Proposed items: picked ones, a whole Research batch, or everything.
-   * Approving a Question approves the Proposed Topic it belongs to, so it shows in the Skill map;
-   * rejecting a Topic rejects the Questions of the same batch in it. Items no longer Proposed are
+   * Approving a Question approves its Topic's proposal for the same target (its batch's, or the
+   * active one outside Research), so it shows in that target's Skill map; rejecting a Topic rejects the Questions of the same batch in it. Items no longer Proposed are
    * left as they are.
    */
   review(request: ReviewRequest): ReviewResponse {
     const counts = this.#db.transaction((tx) => {
-      const pendingTopics = tx.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
-      const pendingQuestions = tx.select().from(questions).where(eq(questions.status, "proposed")).all();
+      const proposedTopics = tx.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
+      const proposedQuestions = tx.select().from(questions).where(eq(questions.status, "proposed")).all();
       const inBatch = (activityId: string | null) =>
         request.all === true || (request.batchId !== undefined && activityId === request.batchId);
-      const topicIds = new Set(pendingTopics.filter((t) => inBatch(t.activityId) || request.topics?.includes(t.id)).map((t) => t.id));
-      const questionIds = new Set(pendingQuestions.filter((q) => inBatch(q.activityId) || request.questions?.includes(q.id)).map((q) => q.id));
+      const topicIds = new Set(proposedTopics.filter((t) => inBatch(t.activityId) || request.topics?.includes(t.id)).map((t) => t.id));
+      const questionIds = new Set(proposedQuestions.filter((q) => inBatch(q.activityId) || request.questions?.includes(q.id)).map((q) => q.id));
       if (request.action === "approve") {
-        for (const q of pendingQuestions) {
+        for (const q of proposedQuestions) {
           if (!questionIds.has(q.id)) continue;
-          for (const t of pendingTopics) if (t.topicId === q.topicId) topicIds.add(t.id);
+          const target = this.#targetOf(tx, q.activityId);
+          for (const t of proposedTopics) if (t.topicId === q.topicId && t.targetId === target) topicIds.add(t.id);
         }
-        for (const t of pendingTopics) if (topicIds.has(t.id)) this.#approveTopic(tx, t);
+        for (const t of proposedTopics) if (topicIds.has(t.id)) this.#approveTopic(tx, t);
         if (questionIds.size) tx.update(questions).set({ status: "active" }).where(inArray(questions.id, [...questionIds])).run();
       } else {
-        for (const t of pendingTopics) {
+        for (const t of proposedTopics) {
           if (!topicIds.has(t.id)) continue;
-          for (const q of pendingQuestions) if (q.topicId === t.topicId && q.activityId === t.activityId) questionIds.add(q.id);
+          for (const q of proposedQuestions) if (q.topicId === t.topicId && q.activityId === t.activityId) questionIds.add(q.id);
         }
         if (topicIds.size) tx.update(topicProposals).set({ status: "rejected" }).where(inArray(topicProposals.id, [...topicIds])).run();
         if (questionIds.size) tx.update(questions).set({ status: "rejected" }).where(inArray(questions.id, [...questionIds])).run();
@@ -394,10 +399,10 @@ export class Bank {
       .where(and(eq(topicProposals.targetId, input.targetId), eq(topicProposals.topicId, topicId)))
       .orderBy(desc(topicProposals.createdAt))
       .all();
-    const pending = earlier.find((p) => p.status === "proposed");
-    if (pending) {
-      if (reason && !pending.reason) tx.update(topicProposals).set({ reason }).where(eq(topicProposals.id, pending.id)).run();
-      return { outcome: "merged", proposalId: pending.id };
+    const open = earlier.find((p) => p.status === "proposed");
+    if (open) {
+      if (reason && !open.reason) tx.update(topicProposals).set({ reason }).where(eq(topicProposals.id, open.id)).run();
+      return { outcome: "merged", proposalId: open.id };
     }
     if (earlier.some((p) => p.status === "rejected")) return { outcome: "rejected_before", proposalId: null };
     const id = crypto.randomUUID();
@@ -405,6 +410,12 @@ export class Bank {
       .values({ id, targetId: input.targetId, topicId, priority, reason, status: "proposed", activityId: input.activityId, createdAt: this.#now() })
       .run();
     return { outcome: "proposed", proposalId: id };
+  }
+
+  /** The target a Research batch worked for; outside Research, the active target. */
+  #targetOf(tx: Tx, activityId: string | null): string | null {
+    if (!activityId) return this.#domain.activeTargetId();
+    return tx.select({ targetId: activities.targetId }).from(activities).where(eq(activities.id, activityId)).get()?.targetId ?? null;
   }
 
   #approveTopic(tx: Tx, proposal: typeof topicProposals.$inferSelect): void {

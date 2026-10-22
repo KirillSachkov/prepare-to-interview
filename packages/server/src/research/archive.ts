@@ -106,15 +106,21 @@ export class ResearchArchive {
 
   /** Saves or updates a note; its Source links merge with the ones saved before and are listed at the end of the file. */
   saveNote(input: NoteInput): Note {
-    const slug = slugify(input.slug ?? input.title);
-    if (!slug) throw new DomainError("The note needs a title or slug with letters or digits.", 'Pass a short "title", such as "PostgreSQL: индексы".');
+    const base = slugify(input.slug ?? input.title);
+    if (!base) throw new DomainError("The note needs a title or slug with letters or digits.", 'Pass a short "title", such as "PostgreSQL: индексы".');
     if (!input.sourceIds.length) throw new DomainError("A note links to at least one Source.", "Archive the pages with archive_source and pass their source_ids.");
     const found = this.#db.select().from(sources).where(inArray(sources.id, [...new Set(input.sourceIds)])).all();
     const missing = [...new Set(input.sourceIds)].filter((id) => !found.some((s) => s.id === id));
     if (missing.length) throw new DomainError(`Unknown source_ids: ${missing.join(", ")}.`, "Pass source_id values that archive_source returned.", { kind: "not_found" });
     const now = this.#now();
-    const { id, updated } = this.#db.transaction((tx) => {
-      const current = tx.select().from(researchNotes).where(eq(researchNotes.slug, slug)).get();
+    const { id, updated, slug } = this.#db.transaction((tx) => {
+      let slug = base;
+      let current = tx.select().from(researchNotes).where(eq(researchNotes.slug, slug)).get();
+      // A title that only shares its slug with another note ("C++: память", "C#: память") gets its own note.
+      if (current && input.slug === undefined && current.title !== input.title) {
+        slug = `${base.slice(0, 71)}-${crypto.createHash("sha256").update(input.title).digest("hex").slice(0, 8)}`;
+        current = tx.select().from(researchNotes).where(eq(researchNotes.slug, slug)).get();
+      }
       const id = current?.id ?? crypto.randomUUID();
       if (current) {
         tx.update(researchNotes).set({ title: input.title, body: input.body, updatedAt: now }).where(eq(researchNotes.id, id)).run();
@@ -122,7 +128,7 @@ export class ResearchArchive {
         tx.insert(researchNotes).values({ id, slug, title: input.title, body: input.body, targetId: input.targetId ?? null, createdAt: now, updatedAt: now }).run();
       }
       for (const s of found) tx.insert(noteSources).values({ noteId: id, sourceId: s.id }).onConflictDoNothing().run();
-      return { id, updated: current !== undefined };
+      return { id, updated: current !== undefined, slug };
     });
     const linked = this.#db
       .select({ source: sources })

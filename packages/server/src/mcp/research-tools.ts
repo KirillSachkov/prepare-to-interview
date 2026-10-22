@@ -25,6 +25,9 @@ const sourceIds = z.array(z.string().min(1)).max(20);
 
 const sourceOutput = z.strictObject({ source_id: z.string(), kind: z.string(), url: z.string().nullable(), title: z.string().nullable() });
 
+/** Tools a hidden Research session gets: it gathers and proposes, but never approves or changes the Chat's work. */
+export const researchSessionTools: readonly string[] = ["search", "archive_source", "save_note", "propose_questions"];
+
 export function createResearchTools({ domain, bank, archive, search, researcher }: ResearchToolDeps): ToolDefinition[] {
   return [
     defineTool({
@@ -166,11 +169,11 @@ export function createResearchTools({ domain, bank, archive, search, researcher 
         topics: z.array(z.strictObject({ name: z.string(), outcome: z.enum(["proposed", "merged", "in_target", "rejected_before"]) })),
         questions: z.array(
           z.strictObject({
-            question_id: z.string(),
+            question_id: z.string().nullable(),
             topic: z.string(),
             prompt: z.string(),
-            outcome: z.enum(["proposed", "merged", "rejected_before"]),
-            status: z.enum(["proposed", "active", "rejected"]),
+            outcome: z.enum(["proposed", "merged", "rejected_before", "topic_rejected"]),
+            status: z.enum(["proposed", "active", "rejected"]).nullable(),
           }),
         ),
         proposed_waiting: z.number(),
@@ -178,10 +181,11 @@ export function createResearchTools({ domain, bank, archive, search, researcher 
       fixHint:
         'Pass {"topics": [{"name": "...", "priority": "high", "reason": "...", "source_ids": ["..."]}], "questions": [{"topic": "...", "prompt": "...", "type": "open", "reference_answer": "...", "hints": ["..."], "source_ids": ["..."]}]}.',
       run: (input) => {
-        const targetId = domain.activeTargetId();
+        // A running batch proposes for its own target, even if the Candidate switched targets meanwhile.
+        const running = domain.backgroundActivity("research");
+        const targetId = running?.targetId ?? domain.activeTargetId();
         if (!targetId) throw new DomainError("No active Preparation target.", "Run onboarding first, then Research.");
         if (!input.topics.length && !input.questions.length) throw new DomainError("Nothing to propose.", "Pass at least one Topic or Question.");
-        const running = domain.backgroundActivity("research");
         const r = bank.propose({
           activityId: running?.id ?? null,
           targetId,
@@ -206,7 +210,7 @@ export function createResearchTools({ domain, bank, archive, search, researcher 
       summarize: (o) => {
         const count = (outcome: string) => o.questions.filter((q) => q.outcome === outcome).length;
         const lines = [
-          `Questions: ${count("proposed")} proposed, ${count("merged")} merged into bank Questions, ${count("rejected_before")} rejected by the Candidate before (not proposed again).`,
+          `Questions: ${count("proposed")} proposed, ${count("merged")} merged into bank Questions, ${count("rejected_before")} rejected by the Candidate before and ${count("topic_rejected")} in Topics the Candidate rejected for this target (not proposed).`,
           o.topics.length ? `Topics: ${o.topics.map((t) => `${t.name} (${t.outcome})`).join(", ")}.` : "",
           `${o.proposed_waiting} items wait for the Candidate's review.`,
         ];
