@@ -267,10 +267,12 @@ export class Domain {
     });
   }
 
-  /** Ends a background Activity that is still running; completing it notifies `onActivityCompleted`. */
-  endBackgroundActivity(activityId: string, status: "completed" | "abandoned", summary: string): void {
-    // A completed batch is an Activity boundary like any other.
-    if (status === "completed") {
+  /**
+   * Ends a background Activity that is still running. Completing it notifies `onActivityCompleted`
+   * (an Activity boundary) unless `boundary` is false, such as while a Mock interview runs.
+   */
+  endBackgroundActivity(activityId: string, status: "completed" | "abandoned", summary: string, options: { boundary?: boolean } = {}): void {
+    if (status === "completed" && options.boundary !== false) {
       this.completeActivity(activityId, summary);
       return;
     }

@@ -129,6 +129,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   late.researcher = research;
   const mock = new MockRunner({ mock: mockInterviews, runner, chat, now });
+  mock.onFinished(() => research.release());
   // The review after a graded set or a Mock interview waits for the Grader.
   continuity.holdReview(() => runner.grading);
   runner.onSettled(() => continuity.releaseReview());
@@ -155,7 +156,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       bank,
       search,
       researchMcp: createMcpHandler(createResearchTools(researchDeps, { session: true }), appVersion),
-      mockRunning: () => mock.running() !== null,
+      mockRunning: () => mockInterviews.running() !== null,
     },
     clientDir: options.clientDir ?? defaultClientDir,
   });

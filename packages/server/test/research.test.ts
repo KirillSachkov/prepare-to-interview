@@ -480,14 +480,18 @@ describe("Research Activity", () => {
     expect(h.driver().prompts[0]!.context?.some((c) => c.uri.startsWith("app://context/research/"))).toBeFalsy();
     expect(await texts()).not.toContain("Исследование завершено: нового для банка не нашлось.");
 
-    // Once the mock ended, the next turn brings the held result.
+    expect(h.reviews.filter((r) => r.text.includes('"research"'))).toEqual([]);
+
+    // Once the mock ended, the Chat hears the held results, and the next turn gets them hidden.
     expect((await h.call("finish_mock_interview", {})).isError).toBe(false);
+    expect((await texts()).filter((t) => t === "Исследование завершено: нового для банка не нашлось.")).toHaveLength(1);
     await api(h.server, apiPaths.chatMessages, { body: { text: "Что с исследованием?" } });
     await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).busy).toBe(false);
-    expect(await texts()).toContain("Исследование завершено: нового для банка не нашлось.");
     // The review the app started after the mock, or the next Candidate turn, carries it.
     const after = [...h.reviews, ...h.driver().prompts.slice(1)];
     expect(after.filter((p) => p.context?.some((c) => c.uri.startsWith("app://context/research/")))).toHaveLength(1);
+    // The batch ended during the mock, so the next one can start.
+    expect((await h.call("start_research", {})).isError).toBe(false);
   });
 
   it("needs a Preparation target", async () => {
