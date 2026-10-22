@@ -1,6 +1,6 @@
 // PROTOTYPE - small shared primitives. Layout lives in each variant.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { mockQuestion, topicById, useStore, type Msg } from '../model/store';
+import { hintRungs, mockQuestion, topicById, useStore, type Msg } from '../model/store';
 
 export const cx = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ');
 
@@ -118,10 +118,23 @@ export function CardBody({ cardId, dense, hideDiscuss }: { cardId: string; dense
         </div>
       )}
 
+      {!!c.hints && (
+        <div className="mt-2.5 space-y-1 rounded-lg border border-amber-200/70 bg-amber-50/60 px-3 py-2 text-[12px] leading-relaxed text-amber-900">
+          {hintRungs(q).slice(0, c.hints).map((h, i) => <div key={i}><span className="font-medium">Подсказка {i + 1}.</span> {h}</div>)}
+          <div className="text-[11px] text-amber-700/80">С подсказками максимум {3 - c.hints}/3</div>
+        </div>
+      )}
+
       {graded && c.feedback && (
         <div className="fade-in mt-3 rounded-lg bg-stone-50 px-3 py-2.5 text-[12.5px] leading-relaxed text-stone-600">
           {c.quote && <blockquote className="mb-1.5 border-l-2 border-stone-300 pl-2 italic text-stone-500">«{c.quote}»</blockquote>}
           {c.feedback}
+        </div>
+      )}
+
+      {c.showRef && (
+        <div className="fade-in mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[12.5px] leading-relaxed text-indigo-900">
+          <span className="font-medium">Эталон:</span> {q.keyIdea}.
         </div>
       )}
 
@@ -176,6 +189,7 @@ function Bubble({ m, compact }: { m: Msg; compact?: boolean }) {
   const q = ref ? mockQuestion(state, ref.qid) : undefined;
   return (
     <div className={cx('fade-in flex flex-col', m.from === 'me' ? 'items-end' : 'items-start')}>
+      {m.divider && <div className="mb-2 flex w-full items-center gap-2 text-[10.5px] uppercase tracking-wider text-stone-300"><span className="h-px flex-1 bg-stone-200" />новая тема<span className="h-px flex-1 bg-stone-200" /></div>}
       {q && (
         <button onClick={() => actions.focusCard(ref!.id)} className="mb-1 max-w-[90%] truncate rounded-md border border-indigo-100 bg-indigo-50/60 px-2 py-1 text-left text-[11px] text-indigo-700 hover:bg-indigo-50">
           ↗ {q.text}

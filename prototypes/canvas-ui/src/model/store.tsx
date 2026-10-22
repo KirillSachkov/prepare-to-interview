@@ -20,6 +20,8 @@ export interface Card {
   feedback?: string;
   quote?: string;
   parentId?: string; // follow-up link in a Mock interview
+  hints?: number; // Hint ladder rungs used; each lowers the maximum score
+  showRef?: boolean; // Reference answer revealed after grading
 }
 
 export type SetKind = 'practice' | 'quiz' | 'mock';
@@ -43,6 +45,7 @@ export interface Msg {
   from: 'agent' | 'me';
   text: string;
   refCardId?: string;
+  divider?: boolean; // starts a new conversation topic
 }
 
 export interface State {
@@ -80,10 +83,10 @@ export const setScore = (s: State, set: PracticeSet) => {
 };
 export const target = (s: State) => TARGETS.find((t) => t.id === s.targetId)!;
 
-function gradeOpen(q: Question, answer: string): Pick<Card, 'score' | 'feedback' | 'quote'> {
+function gradeOpen(q: Question, answer: string, hints = 0): Pick<Card, 'score' | 'feedback' | 'quote'> {
   const a = answer.trim();
   const len = a.length;
-  const score = len > 160 ? 3 : len > 70 ? 2 : len > 15 ? 1 : 0;
+  const score = Math.min(3 - hints, len > 160 ? 3 : len > 70 ? 2 : len > 15 ? 1 : 0);
   const quote = a.length > 90 ? a.slice(0, 88).trimEnd() + '…' : a;
   const feedback =
     score === 3 ? `Полный ответ: ${q.keyIdea}.`
@@ -98,18 +101,21 @@ function checkTest(q: Question, choice: number[]) {
   return { correct: ok, score: ok ? 3 : 0, feedback: ok ? 'Верно.' : `Верный ответ: ${q.correct!.map((i) => q.options![i]).join(', ')}.` };
 }
 
-const DEMO_ANSWER =
-  'Метод возвращает управление вызывающему коду, а остаток метода регистрируется как продолжение задачи. Поток не блокируется. Когда задача завершится, продолжение выполнится через захваченный SynchronizationContext, если он есть.';
+/** Hint ladder rungs derived from the Reference answer. */
+export function hintRungs(q: Question): string[] {
+  const first = q.keyIdea.split(';')[0].replace(/\s*\([^)]*\)/g, '').split(',').slice(0, 2).join(',');
+  return [`Начните с главного: ${first}.`, `Эталон по пунктам: ${q.keyIdea}.`];
+}
 
 function initialState(): State {
   return {
     day: 1,
-    targetId: 'net',
+    targetId: 'ai',
     view: 'canvas',
     sets: [],
     cards: {},
     chat: [
-      { id: 'm1', from: 'agent', text: 'Доброе утро! До собеседования 23 дня. Сегодня в повторении 14 вопросов, больше всего проседают GC и индексы PostgreSQL.' },
+      { id: 'm1', from: 'agent', text: 'Доброе утро! До собеседования на AI Engineer 23 дня. В повторении 19 вопросов, сильнее всего проседают evals и защита от prompt injection.' },
       { id: 'm2', from: 'agent', text: 'Начнём с подборки на сегодня? Ещё я нашёл 4 новых вопроса, они ждут вашего одобрения.' },
     ],
     typing: false,
@@ -251,6 +257,7 @@ function useStoreImpl() {
         for (const id of set.cardIds) {
           const c = cards[id];
           const q = qById(st, c.qid);
+          if (c.state === 'skipped') continue;
           if (q.type === 'open') cards[id] = { ...c, state: c.text.trim() ? 'grading' : 'skipped' };
           else cards[id] = c.choice.length ? { ...c, state: 'graded', ...checkTest(q, c.choice) } : { ...c, state: 'skipped' };
         }
@@ -261,7 +268,7 @@ function useStoreImpl() {
         later(1400 + i * 1100, (st) => {
           const c = st.cards[id];
           if (c.state !== 'grading') return st;
-          return { ...st, cards: { ...st.cards, [id]: { ...c, state: 'graded', ...gradeOpen(qById(st, c.qid), c.text) } } };
+          return { ...st, cards: { ...st.cards, [id]: { ...c, state: 'graded', ...gradeOpen(qById(st, c.qid), c.text, c.hints) } } };
         });
       });
       later(1500 + openIds.length * 1100, (st) => applyMastery({ ...st, sets: st.sets.map((x) => (x.id === setId ? { ...x, status: 'graded', finishedAt: Date.now() } : x)) }, setId));
@@ -295,12 +302,12 @@ function useStoreImpl() {
           const c = cards[id];
           if (c.state === 'grading') {
             const q = mockQuestion(st, c.qid);
-            cards[id] = { ...c, state: 'graded', ...gradeOpen(q, c.text) };
+            cards[id] = { ...c, state: 'graded', ...gradeOpen(q, c.text, c.hints) };
           }
         }
         return applyMastery({ ...st, cards, sets: st.sets.map((x) => (x.id === setId ? { ...x, status: 'graded' } : x)) }, setId);
       });
-      agentSay(2900, 'Оценки открыты. Слабее всего вышло про причины Seq Scan: могу добавить эти вопросы в повторение.');
+      agentSay(2900, 'Оценки открыты. Слабее всего вышло последнее уточнение: могу добавить похожие вопросы в повторение.');
     },
     collapseSet(setId: string) {
       setState((s) => ({ ...s, sets: s.sets.map((x) => (x.id === setId ? { ...x, status: 'collapsed' } : x)) }));
@@ -325,6 +332,41 @@ function useStoreImpl() {
       } else {
         agentSay(1000, CHAT_REPLIES[s.chat.length % CHAT_REPLIES.length]);
       }
+    },
+    hint(cardId: string) {
+      setState((s) => {
+        const c = s.cards[cardId];
+        if (c.state !== 'open' || (c.hints ?? 0) >= 2) return s;
+        return { ...s, cards: { ...s.cards, [cardId]: { ...c, hints: (c.hints ?? 0) + 1 } } };
+      });
+    },
+    skip(cardId: string) {
+      const s = ref.current;
+      const c = s.cards[cardId];
+      const set = s.sets.find((x) => x.id === c.setId)!;
+      if (c.state !== 'open' || set.status !== 'active') return;
+      if (set.kind === 'mock') {
+        setState((st) => ({ ...st, cards: { ...st.cards, [cardId]: { ...st.cards[cardId], text: '' } } }));
+        actions.answerMock(cardId);
+        return;
+      }
+      setState((st) => finishQuizIfDone({ ...st, cards: { ...st.cards, [cardId]: { ...st.cards[cardId], state: 'skipped' } } }, set.id));
+    },
+    showRef(cardId: string) {
+      setState((s) => ({ ...s, cards: { ...s.cards, [cardId]: { ...s.cards[cardId], showRef: true } } }));
+    },
+    addCustom(text: string) {
+      const s = ref.current;
+      const q: Question = {
+        id: uid('u'), topicId: targetTopics(s)[0].id, type: 'open', text,
+        keyIdea: 'эталон составит агент после первой проверки', gap: 'проверяющий сверит ответ с эталоном, когда тот появится',
+      };
+      setState((st) => ({ ...st, questions: [...st.questions, q] }));
+      createSet('practice', 'Свой вопрос', [q]);
+      agentSay(700, 'Добавил ваш вопрос на холст. Эталонный ответ подготовлю к проверке.');
+    },
+    newChatTopic() {
+      setState((s) => ({ ...s, chat: [...s.chat, { id: uid('m'), from: 'agent', text: 'Новая тема. О чём поговорим?', divider: true }] }));
     },
     focusCard(cardId: string) {
       setState((s) => ({ ...s, view: 'canvas', focus: { cardId, nonce: Date.now() } }));
@@ -379,7 +421,7 @@ function useStoreImpl() {
   function finishQuizIfDone(s: State, setId: string): State {
     const set = s.sets.find((x) => x.id === setId)!;
     if (set.kind !== 'quiz' || set.status !== 'active') return s;
-    if (!set.cardIds.every((id) => s.cards[id].state === 'graded')) return s;
+    if (!set.cardIds.every((id) => s.cards[id].state === 'graded' || s.cards[id].state === 'skipped')) return s;
     return applyMastery({ ...s, sets: s.sets.map((x) => (x.id === setId ? { ...x, status: 'graded', finishedAt: Date.now() } : x)) }, setId);
   }
 
@@ -408,11 +450,7 @@ export function mockQuestion(s: State, qid: string): Question {
   if (!qid.startsWith('mock:')) return qById(s, qid);
   const [, tid, step] = qid.split(':');
   const m = MOCK_SCRIPTS[tid][Number(step)];
-  return {
-    id: qid, topicId: m.topicId, type: 'open', text: m.text,
-    keyIdea: 'измерить (логирование SQL, EXPLAIN ANALYZE), найти узкое место, затем точечно чинить',
-    gap: 'не сказано, как измерить результат до и после',
-  };
+  return { id: qid, topicId: m.topicId, type: 'open', text: m.text, keyIdea: m.keyIdea, gap: m.gap };
 }
 
 type Store = ReturnType<typeof useStoreImpl>;
@@ -436,4 +474,3 @@ export function useStructureKey() {
   );
 }
 
-export { DEMO_ANSWER };

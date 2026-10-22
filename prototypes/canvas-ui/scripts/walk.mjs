@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
 const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'screenshots');
 mkdirSync(out, { recursive: true });
 const BASE = process.env.BASE ?? 'http://127.0.0.1:5199/';
-const LONG = 'Индекс построен по значению столбца email, а условие использует выражение lower(email), поэтому планировщик не может применить B-tree. Нужен индекс по выражению: CREATE INDEX ON users (lower(email)), либо тип citext.';
-const MID = 'Поколения 0, 1 и 2: молодые объекты собираются чаще. Крупные объекты лежат в LOH.';
+const LONG = 'Пишу рубрику с якорями для каждого балла, отдельный промпт судьи без истории диалога. Размечаю 100–200 ответов людьми и считаю согласие судьи с ними, проверяю позиционное смещение и любовь к длинным ответам.';
+const MID = 'Режу документы по заголовкам, чанки примерно 500 токенов с небольшим перекрытием.';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const only = process.argv[2];
 
@@ -35,53 +35,92 @@ async function answerVisible(page) {
   const tas = page.locator('textarea:not([disabled])');
   const n = await tas.count();
   for (let i = 0; i < n; i++) await tas.nth(i).fill(i === 0 ? LONG : MID);
-  for (const t of ['GIN', 'От 85 000 байт', 'Read Committed', "'object'"]) {
+  const picks = ['Утверждение, не подтверждённое найденными документами', 'Recall@k', 'MRR', 'nDCG', 'Косинусная близость', 'GIN', '422'];
+  for (const t of picks) {
     const b = page.getByRole('button', { name: t, exact: true });
     if (await b.count()) await b.first().click().catch(() => {});
   }
 }
 
-async function mockTurns(page) {
+async function mockTurns(page, hotkey = false) {
   for (let i = 0; i < 3; i++) {
     await wait(1900);
-    await page.locator('textarea:not([disabled])').last().fill(i === 0 ? LONG : MID);
-    await btn(page, 'Ответить').click();
+    const ta = page.locator('textarea:not([disabled])').last();
+    await ta.fill(i === 0 ? LONG : MID);
+    if (hotkey && i === 1) await page.keyboard.press('Meta+Enter'); // answer via hotkey
+    else await btn(page, 'Ответить').click();
   }
   await wait(1500);
 }
 
 async function walkA() {
   const page = await open('A');
-  await shot(page, 'A-1-start');
-  await btn(page, /Подборка на сегодня/).click();
-  await wait(900);
+  const key = (k) => page.keyboard.press(k);
+  const menuItem = (name) => page.getByRole('menu').getByRole('button', { name }).first();
+  await shot(page, 'A-01-start');
+  await page.getByRole('button', { name: 'Мок-интервью' }).first().hover();
+  await wait(200);
+  await shot(page, 'A-02-toolbar-tooltip');
+  await page.mouse.move(700, 700);
+  await key('KeyP'); // hotkey: Подборка на сегодня
+  await wait(1100);
+  await shot(page, 'A-03-practice-set');
+  await page.locator('[data-card-id]').nth(1).click({ button: 'right', position: { x: 60, y: 14 } });
+  await wait(200);
+  await shot(page, 'A-04-card-context-menu');
+  await menuItem(/^Подсказка/).click();
   await answerVisible(page);
-  await shot(page, 'A-2-practice-answering');
-  await btn(page, 'Отправить').click();
+  await shot(page, 'A-05-answering-with-hint');
+  await page.locator('textarea').first().focus();
+  await key('Meta+Enter'); // submit the Practice set from inside a Card
   await wait(4500);
-  await shot(page, 'A-3-graded');
+  await shot(page, 'A-06-graded');
+  await page.locator('[data-card-id]').nth(0).click({ button: 'right', position: { x: 60, y: 14 } });
+  await menuItem('Показать эталон').click();
   await btn(page, /Обсудить/).click();
   await wait(1600);
-  await shot(page, 'A-4-discuss');
-  await btn(page, 'Мок-интервью').click();
-  await mockTurns(page);
-  await shot(page, 'A-5-mock-turns');
+  await shot(page, 'A-07-reference-and-discuss');
+  await page.mouse.click(1300, 860, { button: 'right' });
+  await wait(200);
+  await menuItem(/Подборка по теме/).hover();
+  await wait(200);
+  await shot(page, 'A-08-pane-context-menu');
+  await key('Escape');
+  await key('KeyM'); // hotkey: Мок-интервью
+  await mockTurns(page, true);
+  await shot(page, 'A-09-mock-turns');
   await btn(page, 'Завершить').click();
   await wait(3600);
-  await shot(page, 'A-6-mock-graded-and-collapsed-result');
-  await btn(page, /Карта навыков/).click();
+  await shot(page, 'A-10-mock-graded-and-collapsed-result');
+  await key('Shift+Digit1');
+  await wait(500);
+  await shot(page, 'A-11-fit-all');
+  await key('Shift+Slash'); await wait(300);
+  await wait(200);
+  await shot(page, 'A-12-shortcuts');
+  await key('Escape');
+  await key('KeyB'); // hotkey: Банк / Предложено
   await wait(400);
-  await shot(page, 'A-7-skill-map-proposed');
+  await shot(page, 'A-13-skill-map-proposed');
   await page.getByRole('button', { name: 'Одобрить', exact: true }).first().click();
   await btn(page, 'Банк вопросов').click();
-  await page.getByRole('button', { name: /Индексы PostgreSQL/ }).first().click();
-  await shot(page, 'A-8-skill-map-bank');
+  await page.getByRole('button', { name: /^RAG/ }).first().click();
+  await shot(page, 'A-14-skill-map-bank');
   await page.getByRole('button', { name: 'Потренировать' }).nth(1).click();
   await wait(1000);
-  await shot(page, 'A-9-topic-practice');
+  await shot(page, 'A-15-topic-practice');
   await btn(page, /новый день/).click();
   await wait(800);
-  await shot(page, 'A-10-new-day');
+  await shot(page, 'A-16-new-day');
+  await page.getByRole('button', { name: 'Меню' }).click();
+  await wait(200);
+  await shot(page, 'A-17-burger-menu');
+  await page.getByRole('button', { name: 'Меню' }).click();
+  await page.mouse.move(700, 600);
+  await key('Alt+KeyZ');
+  await wait(200);
+  await shot(page, 'A-18-zen-mode');
+  await key('Alt+KeyZ');
   await page.close();
 }
 

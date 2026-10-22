@@ -32,6 +32,24 @@ body {
     box-shadow: 0 0 0 16px rgb(79 70 229 / 0);
   }
 }
+/* Variant A: selection and Hand tool */
+.variant-a .react-flow__node.selected {
+  outline: 2px solid rgb(129 140 248);
+  outline-offset: 4px;
+  border-radius: 22px;
+}
+.variant-a .react-flow__selection {
+  background: rgb(99 102 241 / 0.06);
+  border: 1px solid rgb(129 140 248);
+}
+.variant-a .tool-hand .react-flow__pane,
+.variant-a .tool-hand .react-flow__node {
+  cursor: grab;
+}
+.variant-a .tool-hand .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
 .fade-in {
   animation: fadeIn 0.35s ease-out;
 }

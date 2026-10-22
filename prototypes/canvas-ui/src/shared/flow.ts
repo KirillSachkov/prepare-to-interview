@@ -13,7 +13,7 @@ export function useSyncedNodes(derived: Node[], place?: (n: Node, existing: Node
         // React Flow disables pointer events on non-draggable, non-selectable nodes; our nodes hold inputs.
         const d = { ...raw, style: { pointerEvents: 'all' as const, ...raw.style } };
         const p = map.get(d.id);
-        if (p) out.push({ ...d, position: d.data?.pin ? d.position : p.position, measured: p.measured });
+        if (p) out.push({ ...d, position: d.data?.pin ? d.position : p.position, measured: p.measured, selected: p.selected });
         else out.push({ ...d, position: place ? place(d, [...out, ...prev]) : d.position });
       }
       return transform ? transform(out) : out;
