@@ -1,21 +1,22 @@
 # Agent instructions
 
-Personal, locally run app for technical interview practice with an AI interviewer.
-Read [project-brief.md](project-brief.md) for the product idea, the MVP result, and open design questions.
-The stack and architecture are undecided; resolved decisions live in `GLOSSARY.md` and `docs/adr/`.
+Open-source, locally run app for technical interview practice: the Candidate's own coding agent acts as the Interviewer, and a Canvas shows what is mastered and what needs repetition.
+Read [project-brief.md](project-brief.md) for the product idea and MVP scope.
 
-## Agent skills
+## Domain docs
 
-For assigned project work, read `WORKFLOW.md` for session mode, classification, checks, and delivery gates.
+Single-context: [GLOSSARY.md](GLOSSARY.md) defines the domain language; name concepts with its terms.
+[docs/adr/](docs/adr/) records architecture decisions; when your work contradicts an ADR, say so explicitly instead of silently overriding it.
+
+## Maintainer workflow
+
+A maintainer checkout also holds a git-ignored development harness ([ADR-0006](docs/adr/0006-maintainer-harness-stays-out-of-the-repo.md)).
+When `WORKFLOW.md` exists, read it before assigned project work: it sets session mode, checks, and delivery gates.
 
 ### Issue tracker
 
-GitHub Issues of `KirillSachkov/prepare-to-interview`. See `docs/agents/issue-tracker.md`.
+GitHub Issues of `KirillSachkov/prepare-to-interview`. Maintainer details: `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: root `GLOSSARY.md` and `docs/adr/`, created lazily. See `docs/agents/domain.md`.
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Maintainer details: `docs/agents/triage-labels.md`.

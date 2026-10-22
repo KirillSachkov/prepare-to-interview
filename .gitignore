@@ -1,0 +1,23 @@
+# Maintainer-local agent harness (development pipeline, not part of the product)
+/.agents/
+/.claude/
+/WORKFLOW.md
+/docs/agents/
+
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment and local data
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
