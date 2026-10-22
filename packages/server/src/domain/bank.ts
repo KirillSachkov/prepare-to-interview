@@ -294,14 +294,24 @@ export class Bank {
    * Topic's proposal: what the Candidate confirms when the Interviewer asks to review.
    */
   selection(request: ReviewRequest): { topics: { id: string; name: string }[]; questions: { id: string; prompt: string }[] } {
-    const proposedTopics = this.#db.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
-    const proposedQuestions = this.#db.select().from(questions).where(eq(questions.status, "proposed")).all();
-    const picked = pick(request, proposedTopics, proposedQuestions);
-    const names = new Map(this.#db.select({ id: topics.id, name: topics.name }).from(topics).all().map((t) => [t.id, t.name]));
-    return {
-      topics: picked.topics.map((t) => ({ id: t.id, name: names.get(t.topicId) ?? "" })),
-      questions: picked.questions.map((q) => ({ id: q.id, prompt: q.prompt })),
-    };
+    return this.#db.transaction((tx) => {
+      const proposedTopics = tx.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
+      const proposedQuestions = tx.select().from(questions).where(eq(questions.status, "proposed")).all();
+      const picked = pick(request, proposedTopics, proposedQuestions);
+      // Approving a Question also approves its Topic's proposal, so the Candidate sees that Topic too.
+      const pickedTopics = new Set(picked.topics);
+      if (request.action === "approve") {
+        for (const q of picked.questions) {
+          const target = this.#targetOf(tx, q.activityId);
+          for (const t of proposedTopics) if (t.topicId === q.topicId && t.targetId === target) pickedTopics.add(t);
+        }
+      }
+      const names = new Map(tx.select({ id: topics.id, name: topics.name }).from(topics).all().map((t) => [t.id, t.name]));
+      return {
+        topics: [...pickedTopics].map((t) => ({ id: t.id, name: names.get(t.topicId) ?? "" })),
+        questions: picked.questions.map((q) => ({ id: q.id, prompt: q.prompt })),
+      };
+    });
   }
 
   // Skill map and the bank

@@ -455,8 +455,8 @@ export interface ProposedDecision {
  * without review. The Chat reads web pages, so its word alone never changes the bank.
  */
 export type BankAction =
-  /** Approving or rejecting the Proposed items picked when the Interviewer asked, by id; `items` is what the Candidate saw. */
-  | { kind: "review"; request: ReviewRequest; items: string[] }
+  /** Approving or rejecting the Proposed items picked when the Interviewer asked, by id, with the names and prompts the Candidate sees. */
+  | { kind: "review"; request: ReviewRequest; topics: string[]; prompts: string[] }
   | { kind: "auto_approve"; batchId: string };
 
 /**

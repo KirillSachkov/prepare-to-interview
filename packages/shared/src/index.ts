@@ -302,7 +302,7 @@ export interface ChatMessage {
 
 /**
  * What waits for the Candidate's confirmation in the Chat: Candidate profile and Decision log
- * updates proposed in a review (`memory`), or a Question bank change the Interviewer asked for (`bank`).
+ * updates proposed in a review (`profile`), or a Question bank change the Interviewer asked for (`bank`).
  */
 export interface ReviewProposalView {
   id: string;

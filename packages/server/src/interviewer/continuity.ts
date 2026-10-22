@@ -302,7 +302,7 @@ function reviewRequest(activity: Activity): string {
 function describeBankAction(action: BankAction): string[] {
   if (action.kind === "auto_approve") return ["Добавить в банк без проверки всё, что предложит запущенное исследование."];
   const lead = action.request.action === "approve" ? "Одобрить и добавить в банк:" : "Отклонить:";
-  return [lead, ...action.items];
+  return [lead, ...action.topics.map((name) => `Тема: ${name}`), ...action.prompts.map((prompt) => `Вопрос: ${prompt}`)];
 }
 
 /** One Russian line per proposed change, as the Candidate confirms them. */

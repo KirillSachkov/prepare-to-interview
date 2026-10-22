@@ -4,7 +4,6 @@ import { z } from "zod";
 import { apiPaths, mockDurationLimits, mockPaths, type MockRequest } from "@prepare-to-interview/shared";
 import type { Chat } from "../chat/chat.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
-// Called while createApp builds the routes, after app.ts has finished loading.
 import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./respond.ts";
 
 const mockRequest = z.strictObject({

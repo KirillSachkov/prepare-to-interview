@@ -269,7 +269,8 @@ function allResearchTools({ domain, bank, archive, search, researcher, confirm }
           confirm({
             kind: "review",
             request: { action: input.action, topics: picked.topics.map((t) => t.id), questions: picked.questions.map((q) => q.id) },
-            items: [...picked.topics.map((t) => `Тема: ${t.name}`), ...picked.questions.map((q) => `Вопрос: ${q.prompt}`)],
+            topics: picked.topics.map((t) => t.name),
+            prompts: picked.questions.map((q) => q.prompt),
           });
           return { approved: 0, rejected: 0, proposed_waiting: bank.proposedCount(), awaiting_confirmation: true };
         }
