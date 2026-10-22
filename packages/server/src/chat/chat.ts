@@ -321,8 +321,6 @@ export class Chat {
   }
 }
 
-
-
 /** A copy safe to show: hidden state echoes removed. */
 function visible(message: ChatMessage): ChatMessage {
   return { ...message, text: stripHiddenState(message.text), toolCalls: message.toolCalls.map((c) => ({ ...c })) };

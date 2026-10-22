@@ -75,7 +75,16 @@ test("answer → submit → grades → collapse into a result Card", async ({ pa
   // Cmd/Ctrl+Enter submits from inside a Card.
   await open.getByLabel("Ваш ответ").press("ControlOrMeta+Enter");
 
-  // Tests are checked by the app; the open answer arrives from the Grader with its quote.
+  // Once graded, the set collapses into a result Card, also after reload.
+  const expand = set.getByRole("button", { name: "Развернуть" });
+  await expect(expand).toBeVisible();
+  await expect(set).toContainText("итог 5/9");
+  await expect(set.locator("[data-card-id]")).toHaveCount(0);
+  await page.reload();
+  await expect(expand).toBeVisible();
+
+  // Expanded, it shows the grades: tests checked by the app, the open answer from the Grader with its quote.
+  await expand.click();
   await expect(single.getByLabel("Оценка 3 из 3")).toBeVisible();
   await expect(multi.getByLabel("Оценка 0 из 3")).toBeVisible();
   await expect(open.getByLabel("Оценка 2 из 3")).toBeVisible();
@@ -88,12 +97,9 @@ test("answer → submit → grades → collapse into a result Card", async ({ pa
   // The Chat receives a short summary.
   await expect(chat(page)).toContainText("Подборка проверена: «Подборка на сегодня» — 5 из 9.");
 
-  // The graded set collapses into a result Card, also after reload.
+  // It folds back into the result Card.
   await set.getByRole("button", { name: "Свернуть в итог" }).click();
-  await expect(set).toContainText("итог 5/9");
-  await expect(set.locator("[data-card-id]")).toHaveCount(0);
-  await page.reload();
-  await expect(practiceSet(page, "Подборка на сегодня").getByRole("button", { name: "Развернуть" })).toBeVisible();
+  await expect(expand).toBeVisible();
 });
 
 test("skip, training mode, and «Обсудить» bring a Card into the Chat", async ({ page, baseURL }) => {
@@ -113,8 +119,10 @@ test("skip, training mode, and «Обсудить» bring a Card into the Chat",
   await expect(set.getByLabel("Оценка сразу")).toBeChecked();
   await single.getByRole("radio", { name: "Медленный ответ" }).click();
   await single.getByRole("button", { name: "Проверить" }).click();
-  await expect(single.getByLabel("Оценка 0 из 3")).toBeVisible();
+  // The last Card completes the set, which collapses into its result Card.
   await expect(set).toContainText("итог 0/3");
+  await set.getByRole("button", { name: "Развернуть" }).click();
+  await expect(single.getByLabel("Оценка 0 из 3")).toBeVisible();
 
   await single.getByRole("button", { name: "Обсудить →" }).click();
   await expect(chat(page)).toContainText("Обсудим эту карточку.");

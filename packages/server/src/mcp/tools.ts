@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maxPracticeCards } from "@prepare-to-interview/shared";
 import { practiceSetKinds, questionTypes, revealModes, topicPriorities } from "../db/schema.ts";
 import { maxHintRungs } from "../domain/arithmetic.ts";
 import {
@@ -429,7 +430,7 @@ export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDe
           due: progress.due,
           topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: percent(t.mastery), questions: t.questions, due: t.due })),
           due_questions: queue.due.map(queued),
-          new_questions: queue.fresh.map(queued),
+          new_questions: queue.neverPractised.map(queued),
         };
       },
       summarize: (o) => {
@@ -460,7 +461,7 @@ export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDe
           .describe('"after_submit" (default) shows grades after the set is submitted; "each_answer" grades each Card right away (training). A Quiz always uses each_answer.'),
         time_limit_minutes: z.number().int().min(1).max(120).nullish().describe("Only for a timed Quiz."),
         replace_unfinished: z.boolean().optional().describe("Drop the Candidate's unsubmitted Practice set; only after they agreed."),
-        cards: z.array(practiceCardInput).min(1).max(12),
+        cards: z.array(practiceCardInput).min(1).max(maxPracticeCards),
       }),
       output: z.strictObject({
         practice_set_id: z.string(),

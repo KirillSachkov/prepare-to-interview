@@ -17,9 +17,14 @@ export interface TestCheck {
   correct: number[];
 }
 
+/** Indexes of a test's correct options. */
+export function correctOptions(options: TestOption[]): number[] {
+  return options.flatMap((o, i) => (o.correct ? [i] : []));
+}
+
 /** Checks a test answer against the options; the app does it, never the Grader. */
 export function checkTest(type: QuestionType, options: TestOption[], chosen: number[]): TestCheck {
-  const correct = options.flatMap((o, i) => (o.correct ? [i] : []));
+  const correct = correctOptions(options);
   const picked = new Set(chosen);
   const wrong = [...picked].some((i) => !options[i]?.correct);
   const hits = correct.filter((i) => picked.has(i)).length;

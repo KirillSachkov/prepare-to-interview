@@ -43,6 +43,13 @@
       "when": 1792693968848,
       "tag": "0005_drop_demo_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792695514163,
+      "tag": "0006_practice_set_mode",
+      "breakpoints": true
     }
   ]
 }

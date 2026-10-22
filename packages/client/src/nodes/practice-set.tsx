@@ -1,7 +1,7 @@
 // The Practice set node (prototype variant A): a region of Cards answered in any order and
 // submitted together; once graded it collapses into a small result Card.
 import { useContext, useEffect, useEffectEvent, useState, type ReactNode } from "react";
-import type { CardView, PracticeSetNode, PracticeSetView } from "@prepare-to-interview/shared";
+import { wideSetCards, type CardView, type PracticeSetNode, type PracticeSetView } from "@prepare-to-interview/shared";
 import { cardAction, discussCard, setReveal, submitPracticeSet, type CardAction } from "../practice/practice-api.ts";
 import { draftOf, useCardDraft, useDraftChanges } from "../practice/drafts.ts";
 import { modLabel } from "../shell/hotkeys.ts";
@@ -48,7 +48,7 @@ function answeredCount(set: PracticeSetView): number {
 function PracticeSetBody(props: Props) {
   const set = props.content;
   if (props.collapsed) return <ResultCard {...props} />;
-  const wide = set.cards.length >= 3;
+  const wide = set.cards.length >= wideSetCards;
   return (
     <div
       data-set-id={props.id}

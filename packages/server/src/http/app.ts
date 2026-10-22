@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   apiPaths,
   cardPaths,
+  maxAnswerLength,
   practiceSetPaths,
   type AddQuestionResponse,
   type AgentsResponse,
@@ -138,7 +139,7 @@ export function createApp(deps: AppDeps): Hono {
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
     return domainResult(() => {
       const cardId = idParam(c);
-      deps.practice.cardContext(cardId);
+      if (deps.practice.cardPrompt(cardId) === undefined) return c.json({ error: "такой карточки нет. Обновите страницу." }, 404);
       return sendToChat(() => deps.chat.send(discussMessage, { cardId }));
     });
   });
@@ -199,7 +200,7 @@ const practiceRequest = z.strictObject({
   topic: z.string().trim().min(1).max(120).optional(),
 }).refine((r) => r.kind !== "topic" || r.topic, { message: "A topic request names the topic." });
 const cardDraft = z.strictObject({
-  text: z.string().max(20_000).optional(),
+  text: z.string().max(maxAnswerLength).optional(),
   choices: z.array(z.number().int().min(0).max(20)).max(20).optional(),
 });
 const revealRequest = z.strictObject({ reveal: z.enum(revealModes) });

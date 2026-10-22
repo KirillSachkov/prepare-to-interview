@@ -12,12 +12,13 @@ import type {
 
 /**
  * One step of a scripted turn: emit an event as is, call a tool on a session MCP server for real,
- * wait until the turn is cancelled, or fail the turn with an error.
+ * wait until the turn is cancelled or until a promise settles, or fail the turn with an error.
  */
 export type FakeStep =
   | { event: AgentEvent }
   | { callTool: { server: string; tool: string; arguments: Record<string, unknown> } }
   | { waitForCancel: true }
+  | { waitFor: Promise<unknown> }
   | { fail: Error };
 
 export type FakeTurn = FakeStep[];
@@ -107,6 +108,7 @@ export class FakeDriver implements AgentDriver {
       if ("event" in step) onEvent(step.event);
       else if ("callTool" in step) await this.#callTool(config.mcpServers, step.callTool, onEvent);
       else if ("fail" in step) throw step.fail;
+      else if ("waitFor" in step) await step.waitFor;
       else {
         await untilCancelled();
         return { stopReason: "cancelled" };

@@ -69,12 +69,25 @@ export const practiceSetPaths = {
   reveal: (setId: string) => `/api/practice-sets/${setId}/reveal`,
 } as const;
 
-export type QuestionType = "open" | "single_choice" | "multiple_choice";
-export type CardStatus = "open" | "grading" | "graded" | "skipped" | "failed";
-export type PracticeSetKind = "practice" | "quiz";
+export const topicPriorities = ["high", "medium", "low"] as const;
+export type TopicPriority = (typeof topicPriorities)[number];
+export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
+export type QuestionType = (typeof questionTypes)[number];
+export const cardStatuses = ["open", "grading", "graded", "skipped", "failed"] as const;
+export type CardStatus = (typeof cardStatuses)[number];
+export const practiceSetKinds = ["practice", "quiz"] as const;
+export type PracticeSetKind = (typeof practiceSetKinds)[number];
 /** When grades appear: after the whole set is submitted, or right after each answer (training). */
-export type RevealMode = "after_submit" | "each_answer";
+export const revealModes = ["after_submit", "each_answer"] as const;
+export type RevealMode = (typeof revealModes)[number];
+/** Statuses the Canvas shows; a dropped (abandoned) set leaves the Canvas. */
 export type PracticeSetStatus = "active" | "grading" | "graded";
+/** Most Cards in one Practice set. */
+export const maxPracticeCards = 12;
+/** A Practice set with this many Cards renders two columns wide (800 px instead of 440 px). */
+export const wideSetCards = 3;
+/** Longest open answer a Card accepts. */
+export const maxAnswerLength = 20_000;
 
 export interface CardDraft {
   text: string;
@@ -320,7 +333,7 @@ export interface TopicProgress {
   name: string;
   /** Group Topic this one nests under. */
   group: string | null;
-  priority: "high" | "medium" | "low";
+  priority: TopicPriority;
   /** 0–1; `null` for a never-touched Topic. */
   mastery: number | null;
   /** Active Questions in the Topic and its subtopics. */

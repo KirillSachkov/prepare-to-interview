@@ -21,7 +21,8 @@ export class PracticeRunner {
   readonly #grader: Grader;
   readonly #queue: GradingJob[] = [];
   readonly #running = new Set<Promise<void>>();
-  #closing = false;
+  /** Set once closing gave up waiting: the database may be gone, so late verdicts are dropped. */
+  #stopped = false;
 
   constructor(options: { practice: Practice; grader: Grader; chat: Chat }) {
     this.#practice = options.practice;
@@ -49,11 +50,11 @@ export class PracticeRunner {
 
   /** Stops taking jobs; a grading still running after the timeout is left to the driver shutdown. */
   async close(): Promise<void> {
-    this.#closing = true;
     this.#queue.length = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([this.idle(), new Promise((resolve) => (timer = setTimeout(resolve, closeTimeoutMs)))]);
     clearTimeout(timer);
+    this.#stopped = true;
   }
 
   #enqueue(jobs: GradingJob[]): void {
@@ -68,11 +69,16 @@ export class PracticeRunner {
     for (let job = this.#queue.shift(); job; job = this.#queue.shift()) {
       try {
         const grade = await this.#grader.grade(job);
-        if (!this.#closing) this.#practice.recordGrade(job.cardId, grade);
+        // A verdict that arrives while closing is still worth keeping.
+        if (!this.#stopped) this.#practice.recordGrade(job.cardId, grade);
       } catch (error) {
-        if (this.#closing) return;
+        if (this.#stopped) return;
         const message = error instanceof GradingError ? error.message : "Не удалось проверить ответ. Попробуйте ещё раз.";
-        this.#practice.gradingFailed(job.cardId, message);
+        try {
+          this.#practice.gradingFailed(job.cardId, message);
+        } catch {
+          // The Card is gone; nothing is left to mark.
+        }
       }
     }
   }

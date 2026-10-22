@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,7 +17,7 @@ import {
 } from "@prepare-to-interview/shared";
 import type { AgentDriver, SessionConfig, TurnInput } from "../src/agent/driver.ts";
 import { FakeDriver, type FakeStep, type FakeTurn } from "../src/agent/fake-driver.ts";
-import type { HiddenState } from "../src/interviewer/interviewer.ts";
+import { defaultContentDir, type HiddenState } from "../src/interviewer/interviewer.ts";
 import type { RunningServer } from "../src/server.ts";
 import { authHeaders, makeTempDirs, practiceSets, startTestServer } from "./helpers.ts";
 
@@ -38,8 +40,13 @@ interface Harness {
   /** Grader replies by a word the answer contains; each reply is used once, the last one repeats. */
   grades: Map<string, string[]>;
   graderCalls: GraderCall[];
+  /** While set, Grader turns wait for it before replying. */
+  gate: { wait?: Promise<unknown> };
   setDay: (d: number) => void;
 }
+
+/** The shared Rubric file, which the practice skill and the Grader persona both carry. */
+const rubric = fs.readFileSync(path.join(defaultContentDir, "references", "rubric.md"), "utf8").trim();
 
 const isGrader = (config: SessionConfig) => config.persona.startsWith("# Grader");
 
@@ -47,6 +54,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), options: { a
   let now = day(22);
   const grades = new Map<string, string[]>();
   const graderCalls: GraderCall[] = [];
+  const gate: Harness["gate"] = {};
   let lastAnswer = "";
   let driver: FakeDriver | undefined;
   const respond = (config: SessionConfig, input: TurnInput): FakeTurn | undefined => {
@@ -57,7 +65,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), options: { a
     const key = [...grades.keys()].find((k) => answer.includes(k));
     const replies = key ? grades.get(key) : undefined;
     const text = (replies && replies.length > 1 ? replies.shift() : replies?.[0]) ?? verdict(0, "", "", "Нет ответа по сути.");
-    return [{ event: { type: "message_chunk", text } }];
+    return [...(gate.wait ? [{ waitFor: gate.wait }] : []), { event: { type: "message_chunk", text } }];
   };
   const { server } = await startTestServer(dirs, {
     now: () => now,
@@ -67,7 +75,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), options: { a
   cleanups.push(() => server.close());
   cleanups.push(dirs.cleanup);
   if (options.agent !== false) await api(server, apiPaths.agentSettings, { method: "PUT", body: { agent: "claude" } });
-  return { server, driver: () => driver!, grades, graderCalls, setDay: (d) => (now = day(d)) };
+  return { server, driver: () => driver!, grades, graderCalls, gate, setDay: (d) => (now = day(d)) };
 }
 
 const verdict = (score: number, quote: string, right: string, gap: string) => JSON.stringify({ score, quote, right, gap });
@@ -198,7 +206,7 @@ describe("Practice sets on the Canvas", () => {
     });
 
     expect(placed.skill).toContain('<activity_skill name="practice_set">');
-    expect(placed.skill).toContain("# Rubric");
+    expect(placed.skill).toContain(rubric);
     const set = await onlySet(server);
     expect(set).toMatchObject({ id: placed.practice_set_id, collapsed: false, data: { title: "Подборка на сегодня", kind: "practice", reveal: "after_submit", status: "active" } });
     expect(set.data.cards.map((c) => [c.topic, c.type, c.prompt, c.status])).toEqual([
@@ -289,6 +297,8 @@ describe("Submitting and grading", () => {
 
     const set = await graded(server, placed.practice_set_id);
     expect(set.data.status).toBe("graded");
+    // The graded set collapses into a result Card; expanding it shows the grades again.
+    expect(set.collapsed).toBe(true);
     expect(card(set, 0).attempt).toEqual({
       status: "graded",
       score: 2,
@@ -307,7 +317,7 @@ describe("Submitting and grading", () => {
     expect(graderCalls).toHaveLength(1);
     const { config, input } = graderCalls[0]!;
     expect(config).toMatchObject({ allowedBuiltins: [], mcpServers: [] });
-    expect(config.persona).toContain("# Rubric");
+    expect(config.persona).toContain(rubric);
     expect(input.hiddenState).toBeUndefined();
     expect(input.context).toBeUndefined();
     for (const part of [openRag.prompt, openRag.reference_answer, openRag.rubric_anchors["3"], answer]) expect(input.text).toContain(part);
@@ -428,7 +438,7 @@ describe("Submitting and grading", () => {
     expect(set.data.status).toBe("graded");
   });
 
-  it("collapses graded sets into result Cards when the next set is placed", async () => {
+  it("keeps graded sets collapsed into result Cards when the next set is placed", async () => {
     const { server, call } = await setUp();
     const first = await place(call, { title: "Первая", kind: "quiz", cards: [singleEvals] });
     await draft(server, first.cards[0]!.card_id, { choices: [0] });
@@ -439,6 +449,80 @@ describe("Submitting and grading", () => {
       [first.practice_set_id, true, false],
       [second.practice_set_id, false, true],
     ]);
+  });
+});
+
+describe("Grading edge cases", () => {
+  it("discards a Grader verdict that arrives after its set was dropped", async () => {
+    const { server, call, grades, gate } = await setUp();
+    const placed = await place(call, { title: "Первая", reveal: "each_answer", cards: [openRag, singleEvals] });
+    const cardId = placed.cards[0]!.card_id;
+    await draft(server, cardId, { text: "Режу по заголовкам." });
+    grades.set("заголовкам", [verdict(3, "Режу по заголовкам", "Верно.", "")]);
+    let release: () => void = () => undefined;
+    gate.wait = new Promise<void>((resolve) => (release = resolve));
+    await api(server, cardPaths.check(cardId));
+
+    await place(call, { title: "Вторая", cards: [multiEvals], replace_unfinished: true });
+    release();
+    await expect.poll(async () => (await sets(server)).map((s) => s.data.title)).toEqual(["Вторая"]);
+    // No Attempt was recorded for the dropped Card: its Question was never practised.
+    const progress = await get<ProgressResponse>(server, apiPaths.progress);
+    expect(progress.topics.find((t) => t.name === "RAG")?.mastery).toBeNull();
+  });
+
+  it("lets the Candidate skip a Card whose grading failed", async () => {
+    const harness = await start([], makeTempDirs(), { agent: false });
+    const call = await connectMcp(harness.server);
+    const placed = await place(call, { title: "X", cards: [openRag] });
+    const cardId = placed.cards[0]!.card_id;
+    await draft(harness.server, cardId, { text: "Ответ" });
+    await api(harness.server, practiceSetPaths.submit(placed.practice_set_id));
+    expect(card(await graded(harness.server, placed.practice_set_id), 0).status).toBe("failed");
+
+    const skipped = (await api(harness.server, cardPaths.skip(cardId))).body as PracticeSetNode;
+    expect(card(skipped, 0)).toMatchObject({ status: "skipped", error: null });
+    expect(skipped.data).toMatchObject({ status: "graded", result: { score: 0, max: 0, skipped: 1 } });
+  });
+
+  it("keeps the practice_set Activity running until its last set is graded", async () => {
+    const { server, call, grades, gate } = await setUp();
+    const first = await place(call, { title: "Первая", cards: [openRag] });
+    await draft(server, first.cards[0]!.card_id, { text: "Режу по заголовкам." });
+    grades.set("заголовкам", [verdict(2, "Режу по заголовкам", "Есть идея.", "Нет метрик.")]);
+    let release: () => void = () => undefined;
+    gate.wait = new Promise<void>((resolve) => (release = resolve));
+    await api(server, practiceSetPaths.submit(first.practice_set_id));
+    const second = await place(call, { title: "Вторая", cards: [singleEvals] });
+    expect(second.activity_id).toBe(first.activity_id);
+
+    gate.wait = undefined;
+    release();
+    await graded(server, first.practice_set_id);
+    expect((await call("get_profile")).data.activity).toMatchObject({ kind: "practice_set" });
+  });
+
+  it("submits a timed Quiz whose time ran out and refuses answers after the deadline", async () => {
+    const { server, call, setDay } = await setUp();
+    const quiz = await place(call, { title: "Блиц", kind: "quiz", time_limit_minutes: 5, cards: [singleEvals] });
+    const cardId = quiz.cards[0]!.card_id;
+    await draft(server, cardId, { choices: [0] });
+    expect((await sets(server))[0]!.data.deadline).toBe(day(22).getTime() + 5 * 60_000);
+    setDay(23);
+    expect(await draft(server, cardId, { choices: [1] })).toEqual({ status: 400, body: { error: "время квиза вышло." } });
+
+    // Nobody submitted it; the next set does not wait for it, and the Quiz counts what was answered.
+    await place(call, { title: "Следующая", cards: [multiEvals] });
+    const expired = (await sets(server)).find((s) => s.id === quiz.practice_set_id)!;
+    expect(expired.data).toMatchObject({ status: "graded", result: { score: 3, max: 3, skipped: 0 } });
+  });
+
+  it("reuses the bank Question with the same prompt instead of adding a copy", async () => {
+    const { call } = await setUp();
+    const own = await call("add_question", { topic: "RAG", prompt: openRag.prompt, type: "open", reference_answer: openRag.reference_answer });
+    await place(call, { title: "X", cards: [openRag] });
+    const queue = (await call("get_progress")).data as { new_questions: { question_id: string }[] };
+    expect(queue.new_questions.map((q) => q.question_id)).toEqual([(own.data as { question_id: string }).question_id]);
   });
 });
 

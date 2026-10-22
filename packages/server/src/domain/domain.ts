@@ -374,6 +374,7 @@ export class Domain {
    * Resolves the Questions of a Practice set in one transaction: bank Questions by id (filling
    * missing fields), and composed ones by Topic and prompt, reusing a bank Question with the same
    * prompt. Composed Questions enter the bank as active: the Candidate asked for the practice.
+   * Proposed and rejected Questions are refused, never reactivated.
    * Returns the Question ids in order.
    */
   practiceQuestions(items: PracticeQuestion[]): string[] {
@@ -385,7 +386,7 @@ export class Domain {
       items.map((item) => {
         if (item.questionId !== undefined) {
           const row = tx.select().from(questions).where(eq(questions.id, item.questionId)).get();
-          if (!row || row.status === "rejected") {
+          if (!row || row.status !== "active") {
             throw new DomainError(`No active Question with id "${item.questionId}".`, "Use question ids from get_progress, or compose the Question with topic, prompt, and type.", { kind: "not_found" });
           }
           this.#fill(tx, row, item);
@@ -394,8 +395,16 @@ export class Domain {
         const topicId = this.#findOrCreateTopic(tx, item.topic);
         const duplicate = this.#duplicate(tx, topicId, item.prompt);
         if (duplicate) {
+          // Proposed Questions wait for the Candidate's approval and rejected ones stay out of practice.
+          if (duplicate.status !== "active") {
+            throw new DomainError(
+              `The bank has this Question as ${duplicate.status} (question ${duplicate.id}); only active Questions go into a Practice set.`,
+              duplicate.status === "proposed"
+                ? "Ask the Candidate to approve it first, or choose another Question."
+                : "The Candidate rejected it; choose another Question.",
+            );
+          }
           this.#fill(tx, duplicate, item);
-          if (duplicate.status !== "active") tx.update(questions).set({ status: "active" }).where(eq(questions.id, duplicate.id)).run();
           return duplicate.id;
         }
         return this.#insertQuestion(tx, topicId, { ...item, type: item.type ?? "open", origin: "interviewer" }, "active");

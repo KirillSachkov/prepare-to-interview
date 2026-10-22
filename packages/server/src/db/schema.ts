@@ -1,5 +1,15 @@
 import { integer, primaryKey, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
-import type { ChatToolCall } from "@prepare-to-interview/shared";
+import {
+  cardStatuses,
+  practiceSetKinds,
+  questionTypes,
+  revealModes,
+  topicPriorities,
+  type ChatToolCall,
+} from "@prepare-to-interview/shared";
+
+export { cardStatuses, practiceSetKinds, questionTypes, revealModes, topicPriorities };
+export type { CardStatus, PracticeSetKind, QuestionType, RevealMode, TopicPriority } from "@prepare-to-interview/shared";
 
 /**
  * Canvas layout is stored apart from domain data: one row per node the Canvas has placed or the
@@ -117,8 +127,6 @@ export const topics = sqliteTable(
   (t) => [uniqueIndex("topics_key").on(t.key)],
 );
 
-export const topicPriorities = ["high", "medium", "low"] as const;
-export type TopicPriority = (typeof topicPriorities)[number];
 
 export const targetTopics = sqliteTable(
   "target_topics",
@@ -140,8 +148,6 @@ export interface TestOption {
   correct: boolean;
 }
 
-export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
-export type QuestionType = (typeof questionTypes)[number];
 
 export type RubricAnchors = Partial<Record<"0" | "1" | "2" | "3", string>>;
 
@@ -197,11 +203,9 @@ export const activities = sqliteTable("activities", {
 
 // Practice (ADR-0004): Practice sets of Cards, Attempts, and Leitner scheduling.
 
-export const practiceSetKinds = ["practice", "quiz"] as const;
-export type PracticeSetKind = (typeof practiceSetKinds)[number];
-/** When grades appear: after the whole set is submitted, or right after each answer (training). */
-export const revealModes = ["after_submit", "each_answer"] as const;
-export type RevealMode = (typeof revealModes)[number];
+export const attemptModes = ["training", "mock"] as const;
+export type AttemptMode = (typeof attemptModes)[number];
+
 export const practiceSetStatuses = ["active", "grading", "graded", "abandoned"] as const;
 export type PracticeSetStatus = (typeof practiceSetStatuses)[number];
 
@@ -216,6 +220,8 @@ export const practiceSets = sqliteTable("practice_sets", {
   kind: text("kind", { enum: practiceSetKinds }).notNull(),
   reveal: text("reveal", { enum: revealModes }).notNull(),
   status: text("status", { enum: practiceSetStatuses }).notNull(),
+  /** Mode of the set's Attempts: `training` for Practice sets and Quizzes, `mock` for a Mock interview. */
+  mode: text("mode", { enum: attemptModes }).notNull().default("training"),
   /** A timed Quiz submits itself at this instant. */
   deadline: integer("deadline", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -225,8 +231,6 @@ export const practiceSets = sqliteTable("practice_sets", {
   reportedAt: integer("reported_at", { mode: "timestamp_ms" }),
 });
 
-export const cardStatuses = ["open", "grading", "graded", "skipped", "failed"] as const;
-export type CardStatus = (typeof cardStatuses)[number];
 
 /** One Question placed on the Canvas inside a Practice set; holds the Candidate's draft. */
 export const cards = sqliteTable("cards", {
@@ -250,9 +254,6 @@ export const cards = sqliteTable("cards", {
   /** Why grading failed, in the Candidate's language. */
   error: text("error"),
 });
-
-export const attemptModes = ["training", "mock"] as const;
-export type AttemptMode = (typeof attemptModes)[number];
 
 /** One answer to one Question: a score with its evidence, or Skipped. */
 export const attempts = sqliteTable("attempts", {

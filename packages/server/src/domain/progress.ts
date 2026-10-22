@@ -38,7 +38,7 @@ export interface QueuedQuestion {
 export interface PracticeQueue {
   due: QueuedQuestion[];
   /** Active Questions never practised. */
-  fresh: QueuedQuestion[];
+  neverPractised: QueuedQuestion[];
 }
 
 export class Progress {
@@ -104,8 +104,8 @@ export class Progress {
       .filter((q) => view.isDue(q.id))
       .map(queued)
       .sort((a, b) => (a.dueOn ?? "").localeCompare(b.dueOn ?? "") || (a.box ?? 0) - (b.box ?? 0));
-    const fresh = pool.filter((q) => !view.schedules.has(q.id)).map(queued);
-    return { due: due.slice(0, options.limit), fresh: fresh.slice(0, options.limit) };
+    const neverPractised = pool.filter((q) => !view.schedules.has(q.id)).map(queued);
+    return { due: due.slice(0, options.limit), neverPractised: neverPractised.slice(0, options.limit) };
   }
 
   /** Everything progress needs about one target, read once. */

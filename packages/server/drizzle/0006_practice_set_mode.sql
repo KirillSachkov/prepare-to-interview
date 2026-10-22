@@ -1,0 +1,1 @@
+ALTER TABLE `practice_sets` ADD `mode` text DEFAULT 'training' NOT NULL;
