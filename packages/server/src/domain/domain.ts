@@ -49,6 +49,15 @@ export class DomainError extends Error {
   }
 }
 
+/** Nothing interrupts a running Mock interview; it ends through its own finish. */
+function mockRunning(): DomainError {
+  return new DomainError(
+    "A Mock interview is running; another Activity would interrupt it.",
+    "Continue the Mock interview, or end it with finish_mock_interview once the Candidate agrees.",
+    { candidateMessage: "сначала завершите мок-интервью." },
+  );
+}
+
 export const markets = ["ru"] as const;
 export const languages = ["ru", "en"] as const;
 export type Market = (typeof markets)[number];
@@ -479,6 +488,7 @@ export class Domain {
   startActivity(kind: ActivityKind, options: { targetId?: string | null; newTarget?: boolean } = {}): { activity: Activity; started: boolean } {
     const result = this.#db.transaction((tx) => {
       const current = tx.select().from(activities).where(and(eq(activities.status, "active"), foreground)).get();
+      if (current?.kind === "mock_interview" && kind !== "mock_interview") throw mockRunning();
       const setUpTarget = options.newTarget === true && current?.kind === "onboarding" && current.targetId !== null;
       if (current?.kind === kind && !setUpTarget) return { activity: current, started: false };
       const now = this.#now();
@@ -512,6 +522,9 @@ export class Domain {
     const current = this.currentActivity();
     if (!current) {
       throw new DomainError("No Activity is running.", "Call finish_activity only while an Activity is active.");
+    }
+    if (current.kind === "mock_interview") {
+      throw new DomainError("A Mock interview ends with finish_mock_interview, not finish_activity.", "Call finish_mock_interview to end it.");
     }
     if (current.kind === "onboarding" && input.status === "completed" && !current.targetId) {
       throw new DomainError(

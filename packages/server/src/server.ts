@@ -16,6 +16,7 @@ import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
 import { Domain } from "./domain/domain.ts";
 import { Bank } from "./domain/bank.ts";
+import { MockInterviews } from "./domain/mock.ts";
 import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
@@ -27,6 +28,7 @@ import { ResearchArchive } from "./research/archive.ts";
 import { Search } from "./search/search.ts";
 import { Grader } from "./interviewer/grader.ts";
 import { defaultContentDir, Interviewer } from "./interviewer/interviewer.ts";
+import { MockRunner } from "./interviewer/mock-runner.ts";
 import { PracticeRunner } from "./interviewer/practice-runner.ts";
 import { Settings } from "./settings/settings.ts";
 
@@ -72,6 +74,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const search = new Search(db);
   // Filled once the Chat exists: Research posts its results into the Chat.
   const late: { researcher?: Researcher } = {};
+  const mockInterviews = new MockInterviews({ db, domain, practice, now });
   const contentDir = options.interviewerDir ?? defaultContentDir;
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
@@ -81,6 +84,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     contentDir,
     domain,
     practice,
+    mock: mockInterviews,
     mcpServers: () => mcpServers,
     now,
     turnContext: [{ take: () => late.researcher?.takeResults() ?? { blocks: [], sent: () => undefined } }],
@@ -109,6 +113,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     post: (text) => chat.post(text),
   });
   late.researcher = research;
+  const mock = new MockRunner({ mock: mockInterviews, runner, chat, now });
 
   const researchTools = createResearchTools({ domain, bank, archive, search, researcher: research });
   const app = createApp({
@@ -119,11 +124,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     domain,
     practice,
     runner,
+    mock,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
     mcp: createMcpHandler(
-      [...createTools({ domain, practice, interviewer }), ...researchTools],
+      [...createTools({ domain, practice, interviewer, mock }), ...researchTools],
       appVersion,
     ),
     bankRoutes: {
@@ -165,6 +171,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     token: dataDir.token,
     mcpServer,
     close: async () => {
+      mock.close();
       await chat.close();
       await runner.close();
       await research.close();

@@ -1,8 +1,8 @@
 {
-  "id": "43b89baf-53a4-42b7-8017-e16b3e0a4a6a",
-  "prevId": "e6a8ca9c-97f9-420f-a87d-dca45cdafbda",
   "version": "6",
   "dialect": "sqlite",
+  "id": "181d3ceb-b1f9-4bba-9b9c-898aae2641f4",
+  "prevId": "e88dab79-f437-45da-a5bf-08598e9d9dee",
   "tables": {
     "activities": {
       "name": "activities",
@@ -62,15 +62,15 @@
         "activities_target_id_preparation_targets_id_fk": {
           "name": "activities_target_id_preparation_targets_id_fk",
           "tableFrom": "activities",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -287,28 +287,28 @@
         "attempts_question_id_questions_id_fk": {
           "name": "attempts_question_id_questions_id_fk",
           "tableFrom": "attempts",
+          "tableTo": "questions",
           "columnsFrom": [
             "question_id"
           ],
-          "tableTo": "questions",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "attempts_activity_id_activities_id_fk": {
           "name": "attempts_activity_id_activities_id_fk",
           "tableFrom": "attempts",
+          "tableTo": "activities",
           "columnsFrom": [
             "activity_id"
           ],
-          "tableTo": "activities",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -489,6 +489,20 @@
           "autoincrement": false,
           "default": false
         },
+        "follow_up_of": {
+          "name": "follow_up_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "follow_up_quote": {
+          "name": "follow_up_quote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "attempt_id": {
           "name": "attempt_id",
           "type": "text",
@@ -509,28 +523,28 @@
         "cards_set_id_practice_sets_id_fk": {
           "name": "cards_set_id_practice_sets_id_fk",
           "tableFrom": "cards",
+          "tableTo": "practice_sets",
           "columnsFrom": [
             "set_id"
           ],
-          "tableTo": "practice_sets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "cards_question_id_questions_id_fk": {
           "name": "cards_question_id_questions_id_fk",
           "tableFrom": "cards",
+          "tableTo": "questions",
           "columnsFrom": [
             "question_id"
           ],
-          "tableTo": "questions",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -609,15 +623,15 @@
         "chat_messages_agent_session_id_agent_sessions_id_fk": {
           "name": "chat_messages_agent_session_id_agent_sessions_id_fk",
           "tableFrom": "chat_messages",
+          "tableTo": "agent_sessions",
           "columnsFrom": [
             "agent_session_id"
           ],
-          "tableTo": "agent_sessions",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -668,15 +682,15 @@
         "decision_log_target_id_preparation_targets_id_fk": {
           "name": "decision_log_target_id_preparation_targets_id_fk",
           "tableFrom": "decision_log",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -706,28 +720,28 @@
         "note_sources_note_id_research_notes_id_fk": {
           "name": "note_sources_note_id_research_notes_id_fk",
           "tableFrom": "note_sources",
+          "tableTo": "research_notes",
           "columnsFrom": [
             "note_id"
           ],
-          "tableTo": "research_notes",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "note_sources_source_id_sources_id_fk": {
           "name": "note_sources_source_id_sources_id_fk",
           "tableFrom": "note_sources",
+          "tableTo": "sources",
           "columnsFrom": [
             "source_id"
           ],
-          "tableTo": "sources",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -809,6 +823,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "focus": {
+          "name": "focus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -843,28 +864,28 @@
         "practice_sets_activity_id_activities_id_fk": {
           "name": "practice_sets_activity_id_activities_id_fk",
           "tableFrom": "practice_sets",
+          "tableTo": "activities",
           "columnsFrom": [
             "activity_id"
           ],
-          "tableTo": "activities",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "practice_sets_target_id_preparation_targets_id_fk": {
           "name": "practice_sets_target_id_preparation_targets_id_fk",
           "tableFrom": "practice_sets",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -995,15 +1016,15 @@
         "question_schedule_question_id_questions_id_fk": {
           "name": "question_schedule_question_id_questions_id_fk",
           "tableFrom": "question_schedule",
+          "tableTo": "questions",
           "columnsFrom": [
             "question_id"
           ],
-          "tableTo": "questions",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1033,28 +1054,28 @@
         "question_sources_question_id_questions_id_fk": {
           "name": "question_sources_question_id_questions_id_fk",
           "tableFrom": "question_sources",
+          "tableTo": "questions",
           "columnsFrom": [
             "question_id"
           ],
-          "tableTo": "questions",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "question_sources_source_id_sources_id_fk": {
           "name": "question_sources_source_id_sources_id_fk",
           "tableFrom": "question_sources",
+          "tableTo": "sources",
           "columnsFrom": [
             "source_id"
           ],
-          "tableTo": "sources",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1170,28 +1191,28 @@
         "questions_topic_id_topics_id_fk": {
           "name": "questions_topic_id_topics_id_fk",
           "tableFrom": "questions",
+          "tableTo": "topics",
           "columnsFrom": [
             "topic_id"
           ],
-          "tableTo": "topics",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "questions_activity_id_activities_id_fk": {
           "name": "questions_activity_id_activities_id_fk",
           "tableFrom": "questions",
+          "tableTo": "activities",
           "columnsFrom": [
             "activity_id"
           ],
-          "tableTo": "activities",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1264,15 +1285,15 @@
         "research_notes_target_id_preparation_targets_id_fk": {
           "name": "research_notes_target_id_preparation_targets_id_fk",
           "tableFrom": "research_notes",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1383,15 +1404,15 @@
         "sources_activity_id_activities_id_fk": {
           "name": "sources_activity_id_activities_id_fk",
           "tableFrom": "sources",
+          "tableTo": "activities",
           "columnsFrom": [
             "activity_id"
           ],
-          "tableTo": "activities",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1435,28 +1456,28 @@
         "target_topics_target_id_preparation_targets_id_fk": {
           "name": "target_topics_target_id_preparation_targets_id_fk",
           "tableFrom": "target_topics",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "target_topics_topic_id_topics_id_fk": {
           "name": "target_topics_topic_id_topics_id_fk",
           "tableFrom": "target_topics",
+          "tableTo": "topics",
           "columnsFrom": [
             "topic_id"
           ],
-          "tableTo": "topics",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1536,41 +1557,41 @@
         "topic_proposals_target_id_preparation_targets_id_fk": {
           "name": "topic_proposals_target_id_preparation_targets_id_fk",
           "tableFrom": "topic_proposals",
+          "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
           ],
-          "tableTo": "preparation_targets",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "topic_proposals_topic_id_topics_id_fk": {
           "name": "topic_proposals_topic_id_topics_id_fk",
           "tableFrom": "topic_proposals",
+          "tableTo": "topics",
           "columnsFrom": [
             "topic_id"
           ],
-          "tableTo": "topics",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "topic_proposals_activity_id_activities_id_fk": {
           "name": "topic_proposals_activity_id_activities_id_fk",
           "tableFrom": "topic_proposals",
+          "tableTo": "activities",
           "columnsFrom": [
             "activity_id"
           ],
-          "tableTo": "activities",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1600,28 +1621,28 @@
         "topic_sources_topic_id_topics_id_fk": {
           "name": "topic_sources_topic_id_topics_id_fk",
           "tableFrom": "topic_sources",
+          "tableTo": "topics",
           "columnsFrom": [
             "topic_id"
           ],
-          "tableTo": "topics",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         },
         "topic_sources_source_id_sources_id_fk": {
           "name": "topic_sources_source_id_sources_id_fk",
           "tableFrom": "topic_sources",
+          "tableTo": "sources",
           "columnsFrom": [
             "source_id"
           ],
-          "tableTo": "sources",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1688,15 +1709,15 @@
         "topics_parent_id_topics_id_fk": {
           "name": "topics_parent_id_topics_id_fk",
           "tableFrom": "topics",
+          "tableTo": "topics",
           "columnsFrom": [
             "parent_id"
           ],
-          "tableTo": "topics",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1707,9 +1728,9 @@
   "views": {},
   "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {}

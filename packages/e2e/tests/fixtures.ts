@@ -3,7 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page } from "@playwright/test";
 import { FakeDriver, type FakeTurn } from "@prepare-to-interview/server/agent/fake-driver";
-import { apiPaths, chatNodeId, tokenQueryParam, type LayoutUpdateRequest } from "@prepare-to-interview/shared";
+import {
+  apiPaths,
+  chatNodeId,
+  practiceSetPaths,
+  tokenQueryParam,
+  type CanvasSnapshot,
+  type LayoutUpdateRequest,
+} from "@prepare-to-interview/shared";
 import { e2eEnv } from "../env.ts";
 
 function token(): string {
@@ -94,6 +101,17 @@ export async function resetChatLayout(baseURL: string): Promise<void> {
     body: JSON.stringify(body),
   });
   expect(res.status).toBe(200);
+}
+
+/** Submits Practice sets earlier tests left unsubmitted, since tests share one Canvas. */
+export async function submitUnfinishedSets(baseURL: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${token()}` };
+  const snapshot = (await (await fetch(new URL(apiPaths.canvas, baseURL), { headers })).json()) as CanvasSnapshot;
+  for (const node of snapshot.nodes) {
+    if (node.kind !== "practice_set" || node.data.mode !== "training" || node.data.status !== "active") continue;
+    const res = await fetch(new URL(practiceSetPaths.submit(node.id), baseURL), { method: "POST", headers });
+    expect(res.status).toBe(202);
+  }
 }
 
 export { expect, test } from "@playwright/test";
