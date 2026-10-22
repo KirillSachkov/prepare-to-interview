@@ -133,6 +133,8 @@ export class Chat {
       );
       this.#finishReply(turn, result.stopReason === "cancelled" ? "cancelled" : "complete");
     } catch (error) {
+      // A turn cut off by shutdown leaves its reply streaming; the next start marks it interrupted.
+      if (this.#closing) return;
       this.#finishReply(turn, "failed");
       // The next turn loads the stored session again, which also recovers from a crashed agent.
       await this.#dropLive();

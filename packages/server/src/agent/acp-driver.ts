@@ -38,6 +38,8 @@ export interface AcpProfile {
   sessionParams(config: SessionConfig): SessionParams;
   /** Mode applied when the config sets none; skipped when the agent does not offer it. */
   defaultMode?: string;
+  /** The default mode is a safety setting: fail the session when the agent does not offer it. */
+  defaultModeRequired?: boolean;
 }
 
 export const clientInfo = { name: "prepare-to-interview", version: "0.0.0" };
@@ -218,7 +220,8 @@ class AgentConnection {
   /** Model and mode are re-applied after every `session/new` and `session/load`: agents reset them. */
   async #applySettings(sessionId: string, state: SessionState, config: SessionConfig): Promise<void> {
     const mode = config.mode ?? this.#profile.defaultMode;
-    if (mode) await this.#setOption(sessionId, state, "mode", mode, config.mode !== undefined);
+    const required = config.mode !== undefined || this.#profile.defaultModeRequired === true;
+    if (mode) await this.#setOption(sessionId, state, "mode", mode, required);
     if (config.model) await this.#setOption(sessionId, state, "model", config.model, true);
   }
 

@@ -106,6 +106,8 @@ const codexDisabledFeatures = [
   "default_mode_request_user_input",
 ];
 
+const codexMode = "read-only";
+
 /**
  * Codex: the base prompt is replaced only per process (`model_instructions_file` in
  * `CODEX_CONFIG`), so each persona gets its own process; the persona is also appended per
@@ -114,12 +116,11 @@ const codexDisabledFeatures = [
  * default mode `agent` can write files and auto-approves. Codex still inherits `~/.codex`
  * (global AGENTS.md, user MCP servers): see ADR-0007.
  */
-const codexMode = "read-only";
-
 export function codexProfile(ctx: ProfileContext): AcpProfile {
   return {
     agent: "codex",
     defaultMode: codexMode,
+    defaultModeRequired: true,
     launch: (config) => {
       const instructions = writeOnce(path.join(ctx.stateDir, "codex"), "instructions", config.persona);
       const codexConfig = {
