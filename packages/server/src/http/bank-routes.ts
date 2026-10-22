@@ -2,10 +2,10 @@
 import type { Hono } from "hono";
 import { z } from "zod";
 import { bankPaths, searchKinds, type ReviewRequest, type SearchResponse } from "@prepare-to-interview/shared";
-import { ChatBusyError, type Chat } from "../chat/chat.ts";
+import type { Chat } from "../chat/chat.ts";
 import type { Bank } from "../domain/bank.ts";
-import { DomainError } from "../domain/domain.ts";
 import type { Search } from "../search/search.ts";
+import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./app.ts";
 
 export interface BankRouteDeps {
   bank: Bank;
@@ -30,11 +30,9 @@ const referenceUpdate = z
 /** What the Candidate says in the Chat when they press «Исследовать». */
 export const researchRequestMessage = "Хочу, чтобы ты исследовал темы и вопросы для моей цели подготовки.";
 
-const busyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
-
 export function registerBankRoutes(app: Hono, deps: BankRouteDeps): void {
   app.get(bankPaths.skillMap, (c) => c.json(deps.bank.skillMap()));
-  app.get(bankPaths.topic(":id"), (c) => domainResult(() => c.json(deps.bank.topicDetail(c.req.param("id") ?? ""))));
+  app.get(bankPaths.topic(":id"), (c) => domainResult(() => c.json(deps.bank.topicDetail(idParam(c)))));
   app.get(bankPaths.bank, (c) => c.json(deps.bank.bank()));
   app.get(bankPaths.proposed, (c) => c.json(deps.bank.queue()));
   app.post(bankPaths.review, async (c) => {
@@ -51,38 +49,16 @@ export function registerBankRoutes(app: Hono, deps: BankRouteDeps): void {
       ...(body.data.referenceAnswer !== undefined && { referenceAnswer: body.data.referenceAnswer }),
       ...(body.data.verified !== undefined && { verified: body.data.verified }),
     };
-    return domainResult(() => c.json(deps.bank.updateReference(c.req.param("id") ?? "", update)));
+    return domainResult(() => c.json(deps.bank.updateReference(idParam(c), update)));
   });
   app.post(bankPaths.researchRequest, (c) => {
-    if (deps.chat.busy) return c.json({ error: busyMessage }, 409);
+    if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
     if (deps.mockRunning()) return c.json({ error: "сначала завершите мок-интервью." }, 409);
-    try {
-      return c.json({ message: deps.chat.send(researchRequestMessage) }, 202);
-    } catch (error) {
-      if (error instanceof ChatBusyError) return c.json({ error: busyMessage }, 409);
-      throw error;
-    }
+    return sendToChat(() => deps.chat.send(researchRequestMessage));
   });
   app.get(bankPaths.search, (c) => {
     const q = c.req.query("q") ?? "";
     const kinds = (c.req.query("kinds") ?? "").split(",").filter((k): k is (typeof searchKinds)[number] => (searchKinds as readonly string[]).includes(k));
     return c.json({ hits: deps.search.search(q.slice(0, 500), { ...(kinds.length && { kinds }), limit: 20 }) } satisfies SearchResponse);
   });
-}
-
-function domainResult(respond: () => Response): Response {
-  try {
-    return respond();
-  } catch (error) {
-    if (!(error instanceof DomainError)) throw error;
-    return Response.json({ error: error.candidateMessage ?? "приложение отклонило запрос." }, { status: error.kind === "not_found" ? 404 : 400 });
-  }
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return undefined;
-  }
 }

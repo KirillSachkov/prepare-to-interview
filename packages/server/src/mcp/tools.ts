@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { maxPracticeCards } from "@prepare-to-interview/shared";
 import { practiceSetKinds, questionTypes, revealModes, topicPriorities } from "../db/schema.ts";
-import { masteryPercent, maxHintRungs } from "../domain/arithmetic.ts";
+import { masteryPercent } from "../domain/arithmetic.ts";
 import {
   DomainError,
   languages,
@@ -18,7 +18,7 @@ import type { Interviewer } from "../interviewer/interviewer.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
 import { continuityTools, refuseDuringReview } from "./continuity-tools.ts";
 import { mockTools } from "./mock-tools.ts";
-import { defineTool, shortText, type ToolDefinition } from "./tool.ts";
+import { defineTool, hintsInput, rubricAnchorsInput, shortText, testOptionsInput, topicName, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
   canvas: Canvas;
@@ -29,7 +29,6 @@ export interface ToolDeps {
   mock: MockRunner;
 }
 
-const topicName = shortText(120).describe("Topic name as the Market names it, such as \"PostgreSQL indexes\".");
 const calendarDate = z.iso.date().describe("Local calendar date YYYY-MM-DD.");
 
 const missionInput = z.strictObject({
@@ -102,17 +101,13 @@ function profileToOutput(p: CandidateProfile): z.input<typeof profileFields> {
   };
 }
 
-const rubricAnchorsInput = z
-  .strictObject({ "0": shortText(500).optional(), "1": shortText(500).optional(), "2": shortText(500).optional(), "3": shortText(500).optional() })
-  .describe("What each Rubric score means for this Question.");
-
 export const practiceCardInput = z.union([
   z
     .strictObject({
       question_id: z.string().min(1).describe("A Question from get_progress."),
       reference_answer: shortText(10_000).optional().describe("Fills a missing Reference answer; a stored one is kept."),
       rubric_anchors: rubricAnchorsInput.optional(),
-      hints: z.array(shortText(500)).max(maxHintRungs).optional().describe("Fills missing Hint ladder rungs, mildest first."),
+      hints: hintsInput.optional().describe("Fills missing Hint ladder rungs, mildest first."),
     })
     .describe("A Question from the bank."),
   z
@@ -120,15 +115,10 @@ export const practiceCardInput = z.union([
       topic: topicName,
       prompt: shortText(4000).describe("The Question as the Candidate should see it."),
       type: z.enum(questionTypes),
-      options: z
-        .array(z.strictObject({ text: shortText(500), correct: z.boolean() }))
-        .min(2)
-        .max(10)
-        .optional()
-        .describe("Test options; only for single_choice and multiple_choice."),
+      options: testOptionsInput.optional(),
       reference_answer: shortText(10_000).optional().describe("Required for open Questions: what a good answer contains."),
       rubric_anchors: rubricAnchorsInput.optional(),
-      hints: z.array(shortText(500)).max(maxHintRungs).optional().describe("Hint ladder rungs, mildest first."),
+      hints: hintsInput.optional(),
     })
     .describe("A new Question you compose; it enters the bank."),
 ]);
@@ -324,11 +314,7 @@ export function createTools({ canvas, domain, practice, interviewer, continuity,
         topic: topicName,
         prompt: shortText(4000).describe("The Question as the Candidate should see it."),
         type: z.enum(questionTypes).default("open"),
-        options: z
-          .array(z.strictObject({ text: shortText(500), correct: z.boolean() }))
-          .max(10)
-          .optional()
-          .describe("Test options; only for single_choice and multiple_choice."),
+        options: testOptionsInput.optional(),
         reference_answer: shortText(10_000).nullish(),
       }),
       output: z.strictObject({ question_id: z.string(), topic: z.string(), status: z.enum(["proposed", "active"]) }),

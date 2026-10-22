@@ -3,13 +3,12 @@
 import { z } from "zod";
 import { searchKinds, type SearchKind } from "@prepare-to-interview/shared";
 import { questionTypes, sourceKinds, topicPriorities, type BankAction } from "../db/schema.ts";
-import { maxHintRungs } from "../domain/arithmetic.ts";
 import type { Bank } from "../domain/bank.ts";
 import { DomainError, type Domain } from "../domain/domain.ts";
 import type { Researcher } from "../interviewer/researcher.ts";
 import type { ResearchArchive } from "../research/archive.ts";
 import type { Search } from "../search/search.ts";
-import { defineTool, type ToolDefinition } from "./tool.ts";
+import { defineTool, hintsInput, rubricAnchorsInput, shortText, testOptionsInput, topicName, type ToolDefinition } from "./tool.ts";
 
 export interface ResearchToolDeps {
   domain: Domain;
@@ -21,8 +20,6 @@ export interface ResearchToolDeps {
   confirm: (action: BankAction) => string;
 }
 
-const shortText = (max: number) => z.string().trim().min(1).max(max);
-const topicName = shortText(120).describe('Topic name as the Market names it, such as "PostgreSQL indexes".');
 const sourceIds = z.array(z.string().min(1)).max(20);
 
 const sourceOutput = z.strictObject({ source_id: z.string(), kind: z.string(), url: z.string().nullable(), title: z.string().nullable() });
@@ -173,17 +170,10 @@ function allResearchTools({ domain, bank, archive, search, researcher, confirm }
               topic: topicName,
               prompt: shortText(4000).describe("The Question as the Candidate should see it."),
               type: z.enum(questionTypes).default("open"),
-              options: z
-                .array(z.strictObject({ text: shortText(500), correct: z.boolean() }))
-                .min(2)
-                .max(10)
-                .optional()
-                .describe("Only for single_choice and multiple_choice."),
+              options: testOptionsInput.optional(),
               reference_answer: shortText(10_000).optional().describe("Required for open Questions: what a good answer contains."),
-              rubric_anchors: z
-                .strictObject({ "0": shortText(500).optional(), "1": shortText(500).optional(), "2": shortText(500).optional(), "3": shortText(500).optional() })
-                .optional(),
-              hints: z.array(shortText(500)).max(maxHintRungs).optional().describe("Hint ladder rungs, mildest first."),
+              rubric_anchors: rubricAnchorsInput.optional(),
+              hints: hintsInput.optional(),
               source_ids: sourceIds.min(1),
             }),
           )

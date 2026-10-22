@@ -448,7 +448,7 @@ describe("the Candidate's own Question", () => {
       { type: "single_choice", options: [{ text: "a", correct: true }, { text: "b", correct: true }] },
       "A single_choice Question needs at least two options and exactly one correct.",
     ],
-    ["an open Question with options", { options: [{ text: "a", correct: true }] }, "An open Question has no options."],
+    ["an open Question with options", { options: [{ text: "a", correct: true }, { text: "b", correct: false }] }, "An open Question has no options."],
   ])("refuses %s with a fix hint", async (_case, args, message) => {
     const { server } = await start();
     const mcp = await connectMcp(server);
