@@ -31,10 +31,11 @@ Configuration (environment variables):
 ## Development
 
 ```sh
+pnpm --filter @prepare-to-interview/e2e exec playwright install chromium   # once
 pnpm check
 ```
 
-`pnpm check` runs the tests (Vitest), lint (ESLint), and type check (`tsc`) across the workspace. Packages: `packages/server` (HTTP, WebSocket, MCP server, SQLite storage, agent drivers), `packages/client` (React Flow Canvas), `packages/shared` (API types). Interviewer persona and skills live in `interviewer/`. After changing `packages/server/src/db/schema.ts`, run `pnpm --filter @prepare-to-interview/server db:generate` to add a migration.
+`pnpm check` runs the tests (Vitest), lint (ESLint), type check (`tsc`), and the browser end-to-end tests (`pnpm e2e`: Playwright, headless Chromium) across the workspace. The e2e tests build the client and start the server with a throwaway data directory; agent-side changes go through the fake agent driver. Packages: `packages/server` (HTTP, WebSocket, MCP server, SQLite storage, agent drivers), `packages/client` (React Flow Canvas), `packages/shared` (API types), `packages/e2e` (Playwright scenarios). Interviewer persona and skills live in `interviewer/`. After changing `packages/server/src/db/schema.ts`, run `pnpm --filter @prepare-to-interview/server db:generate` to add a migration.
 
 ## Documentation
 

@@ -8,6 +8,13 @@
       "when": 1792685199298,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792686158141,
+      "tag": "0001_canvas_layout_collapsed",
+      "breakpoints": true
     }
   ]
 }

@@ -8,9 +8,13 @@ export const demoNotes = sqliteTable("demo_notes", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-/** Canvas layout is stored apart from domain data: one row per node shown on the Canvas. */
+/**
+ * Canvas layout is stored apart from domain data: one row per node the Canvas has placed or the
+ * Candidate has moved. Rows hold no domain meaning and can be rebuilt by placing nodes again.
+ */
 export const canvasLayout = sqliteTable("canvas_layout", {
   nodeId: text("node_id").primaryKey(),
   x: real("x").notNull(),
   y: real("y").notNull(),
+  collapsed: integer("collapsed", { mode: "boolean" }).notNull().default(false),
 });

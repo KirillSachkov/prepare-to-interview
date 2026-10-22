@@ -2,6 +2,11 @@
   "name": "@prepare-to-interview/server",
   "private": true,
   "type": "module",
+  "exports": {
+    "./server": "./src/server.ts",
+    "./agent/driver": "./src/agent/driver.ts",
+    "./agent/fake-driver": "./src/agent/fake-driver.ts"
+  },
   "scripts": {
     "start": "node src/main.ts",
     "typecheck": "tsc --noEmit -p .",

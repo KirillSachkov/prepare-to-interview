@@ -67,7 +67,7 @@ describe("access to the app server", () => {
     const server = await start();
     const res = await fetch(new URL(apiPaths.canvas, server.url), { headers: authHeaders(server) });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ nodes: [] });
+    expect(await res.json()).toMatchObject({ nodes: [{ kind: "chat" }] });
   });
 
   it("exchanges the URL token for a cookie and then serves the Canvas page", async () => {

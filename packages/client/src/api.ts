@@ -1,4 +1,10 @@
-import { apiPaths, type CanvasSnapshot, type ServerEvent } from "@prepare-to-interview/shared";
+import {
+  apiPaths,
+  type CanvasSnapshot,
+  type LayoutUpdate,
+  type LayoutUpdateRequest,
+  type ServerEvent,
+} from "@prepare-to-interview/shared";
 
 // The browser authenticates with the HttpOnly cookie set when the tokenized URL was opened.
 
@@ -6,6 +12,18 @@ export async function fetchCanvas(): Promise<CanvasSnapshot> {
   const res = await fetch(apiPaths.canvas, { credentials: "same-origin" });
   if (!res.ok) throw new Error(`Canvas request failed: ${res.status}`);
   return (await res.json()) as CanvasSnapshot;
+}
+
+/** Stores node positions or collapsed state in the layout store. */
+export async function saveLayout(updates: LayoutUpdate[]): Promise<void> {
+  const body: LayoutUpdateRequest = { updates };
+  const res = await fetch(apiPaths.canvasLayout, {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Layout save failed: ${res.status} ${await res.text()}`);
 }
 
 /**

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { CanvasSnapshot, DemoNoteNode } from "@prepare-to-interview/shared";
 import { startServer, type RunningServer } from "../src/server.ts";
 
 export const testIndexHtml = "<!doctype html><title>canvas test</title><div id=root></div>";
@@ -25,6 +26,11 @@ export async function startTestServer(dirs = makeTempDirs()): Promise<{
 }> {
   const server = await startServer({ dataDir: dirs.dataDir, clientDir: dirs.clientDir, port: 0 });
   return { server, dirs };
+}
+
+/** The demo notes in a snapshot, without the Chat node every Canvas has. */
+export function demoNotes(snapshot: CanvasSnapshot): DemoNoteNode[] {
+  return snapshot.nodes.filter((n) => n.kind === "demo_note");
 }
 
 export function authHeaders(server: RunningServer): Record<string, string> {

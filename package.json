@@ -8,10 +8,11 @@
   },
   "scripts": {
     "start": "pnpm --filter @prepare-to-interview/client build && pnpm --filter @prepare-to-interview/server start",
-    "check": "pnpm run test && pnpm run lint && pnpm run typecheck",
+    "check": "pnpm run test && pnpm run lint && pnpm run typecheck && pnpm run e2e",
     "test": "vitest run",
     "lint": "eslint --max-warnings 0 .",
-    "typecheck": "pnpm -r --parallel typecheck"
+    "typecheck": "pnpm -r --parallel typecheck",
+    "e2e": "pnpm --filter @prepare-to-interview/client build && pnpm --filter @prepare-to-interview/e2e test"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

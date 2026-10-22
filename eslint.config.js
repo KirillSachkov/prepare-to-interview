@@ -21,7 +21,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/server/**/*.ts", "packages/shared/**/*.ts", "*.{js,ts}"],
+    files: ["packages/server/**/*.ts", "packages/shared/**/*.ts", "packages/e2e/**/*.ts", "*.{js,ts}"],
     languageOptions: { globals: globals.node },
   },
   {
@@ -34,7 +34,7 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
   },
   {
-    files: ["**/test/**/*.ts"],
+    files: ["**/test/**/*.ts", "packages/e2e/tests/**/*.ts"],
     rules: { "@typescript-eslint/no-non-null-assertion": "off" },
   },
 );

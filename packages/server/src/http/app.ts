@@ -3,8 +3,9 @@ import path from "node:path";
 import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { z } from "zod";
 import { apiPaths, type ServerEvent } from "@prepare-to-interview/shared";
-import type { Canvas } from "../canvas/canvas.ts";
+import { UnknownNodeError, type Canvas } from "../canvas/canvas.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { hostGuard, tokenGuard } from "./access.ts";
@@ -19,6 +20,14 @@ export interface AppDeps {
   clientDir: string;
 }
 
+const position = z.strictObject({ x: z.number(), y: z.number() });
+
+const layoutUpdateRequest = z.strictObject({
+  updates: z
+    .array(z.strictObject({ nodeId: z.string().min(1), position: position.optional(), collapsed: z.boolean().optional() }))
+    .max(1000),
+});
+
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
   app.use("*", hostGuard(deps.allowedHosts));
@@ -28,6 +37,17 @@ export function createApp(deps: AppDeps): Hono {
   app.on(["GET", "DELETE"], apiPaths.mcp, (c) => c.text("Stateless MCP endpoint: use POST", 405));
 
   app.get(apiPaths.canvas, (c) => c.json(deps.canvas.snapshot()));
+
+  app.put(apiPaths.canvasLayout, async (c) => {
+    const parsed = layoutUpdateRequest.safeParse(await c.req.json().catch(() => undefined));
+    if (!parsed.success) return c.text(`Invalid layout update: ${z.prettifyError(parsed.error)}`, 400);
+    try {
+      return c.json({ layouts: deps.canvas.updateLayout(parsed.data.updates) });
+    } catch (error) {
+      if (error instanceof UnknownNodeError) return c.text(error.message, 404);
+      throw error;
+    }
+  });
 
   app.get(
     apiPaths.events,

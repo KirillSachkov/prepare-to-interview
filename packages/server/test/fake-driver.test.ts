@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { apiPaths, type CanvasSnapshot } from "@prepare-to-interview/shared";
 import type { AgentEvent, SessionConfig } from "../src/agent/driver.ts";
 import { FakeDriver } from "../src/agent/fake-driver.ts";
-import { authHeaders, startTestServer } from "./helpers.ts";
+import { authHeaders, demoNotes, startTestServer } from "./helpers.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -41,8 +41,8 @@ describe("fake agent driver", () => {
     const snapshot = (await (
       await fetch(new URL(apiPaths.canvas, server.url), { headers: authHeaders(server) })
     ).json()) as CanvasSnapshot;
-    expect(snapshot.nodes.map((n) => n.data.title)).toEqual(["Transactions"]);
-    const nodeId = snapshot.nodes[0]?.id;
+    expect(demoNotes(snapshot).map((n) => n.data.title)).toEqual(["Transactions"]);
+    const nodeId = demoNotes(snapshot)[0]?.id;
 
     expect(events).toEqual([
       { type: "message_chunk", text: "Let me put that on your Canvas." },

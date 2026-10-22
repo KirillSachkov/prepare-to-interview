@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { apiPaths, type CanvasSnapshot, type ServerEvent } from "@prepare-to-interview/shared";
 import type { RunningServer } from "../src/server.ts";
-import { authHeaders, makeTempDirs, startTestServer } from "./helpers.ts";
+import { authHeaders, demoNotes, makeTempDirs, startTestServer } from "./helpers.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -84,10 +84,11 @@ describe("demo MCP tool to live Canvas", () => {
       id: nodeId,
       kind: "demo_note",
       position: { x: 0, y: 0 },
+      collapsed: false,
       data: { title: "PostgreSQL indexes", body: "B-tree by default" },
     };
     expect(await events.next()).toEqual({ type: "canvas.node_added", node: expectedNode });
-    expect(await canvas(server)).toEqual({ nodes: [expectedNode] });
+    expect(demoNotes(await canvas(server))).toEqual([expectedNode]);
   });
 
   it("keeps placed notes after a restart", async () => {
@@ -101,8 +102,7 @@ describe("demo MCP tool to live Canvas", () => {
     await first.close();
 
     const second = await start(dirs);
-    const { nodes } = await canvas(second);
-    expect(nodes.map((n) => [n.data.title, n.data.body, n.position])).toEqual([
+    expect(demoNotes(await canvas(second)).map((n) => [n.data.title, n.data.body, n.position])).toEqual([
       ["One", "", { x: 0, y: 0 }],
       ["Two", "", { x: 280, y: 0 }],
     ]);
@@ -122,7 +122,7 @@ describe("demo MCP tool to live Canvas", () => {
     expect(text).toContain("Invalid input for demo_place_note");
     expect(text).toContain(field);
     expect(text).toMatch(/\nFix: Pass \{"title"/);
-    expect(await canvas(server)).toEqual({ nodes: [] });
+    expect(demoNotes(await canvas(server))).toEqual([]);
   });
 
   it("answers an unknown tool with isError listing the available tools", async () => {
