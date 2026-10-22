@@ -1,0 +1,174 @@
+// The practice loop on Cards (ticket #6): answer in any order with drafts that survive reload,
+// hints, submit with Cmd/Ctrl+Enter, live grades from the app and the Grader, the Chat summary,
+// and the collapse into a result Card.
+import type { Page } from "@playwright/test";
+import { apiPaths, type CanvasSnapshot, type PracticeSetNode } from "@prepare-to-interview/shared";
+import { agentTurn, apiCall, chooseAgent, expect, openCanvas, placePracticeSet, resetChatLayout, submitUnfinishedSets, test } from "./fixtures.ts";
+
+const chat = (page: Page) => page.locator('.react-flow__node[data-id="chat"]');
+const practiceSet = (page: Page, title: string) => page.locator(".react-flow__node-practice_set").filter({ hasText: title });
+
+const openCard = {
+  topic: "RAG",
+  prompt: "Как выбрать размер чанков для RAG?",
+  type: "open",
+  reference_answer: "Резать по смысловым границам, 300–800 токенов с перекрытием, проверять на метриках ретривера.",
+  hints: ["Начните с границ смысла."],
+};
+const singleCard = {
+  topic: "Evals",
+  prompt: "Что считается галлюцинацией в RAG-ответе?",
+  type: "single_choice",
+  options: [
+    { text: "Утверждение без опоры на документы", correct: true },
+    { text: "Медленный ответ", correct: false },
+  ],
+};
+const multiCard = {
+  topic: "Evals",
+  prompt: "Какие метрики подходят для оценки ретривера?",
+  type: "multiple_choice",
+  options: [
+    { text: "Recall@k", correct: true },
+    { text: "MRR", correct: true },
+    { text: "BLEU", correct: false },
+  ],
+};
+
+test.beforeEach(async ({ page, baseURL }) => {
+  await chooseAgent(baseURL!);
+  await resetChatLayout(baseURL!);
+  await openCanvas(page);
+});
+
+test("answer → submit → grades → collapse into a result Card", async ({ page, baseURL }) => {
+  await placePracticeSet(baseURL!, { title: "Подборка на сегодня", cards: [openCard, singleCard, multiCard] });
+  const set = practiceSet(page, "Подборка на сегодня");
+  // The new node may reach the live Canvas after the first fit; off-screen nodes are not rendered.
+  await expect(async () => {
+    await page.keyboard.press("Shift+Digit1");
+    await expect(set).toContainText("отвечено 0 из 3", { timeout: 1000 });
+  }).toPass();
+  await expect(set.getByRole("button", { name: /Отправить/ })).toBeDisabled();
+  const open = set.locator("[data-card-id]").filter({ hasText: openCard.prompt });
+  const single = set.locator("[data-card-id]").filter({ hasText: singleCard.prompt });
+  const multi = set.locator("[data-card-id]").filter({ hasText: multiCard.prompt });
+  // The Reference answer stays hidden until an Attempt exists.
+  await expect(set.getByRole("button", { name: "Показать эталон" })).toHaveCount(0);
+
+  // A hint lowers the maximum score.
+  await open.getByRole("button", { name: /Подсказка/ }).click();
+  await expect(open).toContainText("Подсказка 1. Начните с границ смысла.");
+  await expect(open).toContainText("С подсказками максимум 2/3");
+
+  // Drafts survive a reload; letters typed into a Card never fire Canvas hotkeys.
+  const answer = "Режу документы по заголовкам. Чанки примерно 500 токенов.";
+  const saved = page.waitForResponse((r) => r.url().includes("/draft") && r.request().method() === "PUT");
+  await open.getByLabel("Ваш ответ").fill(answer);
+  await saved;
+  await single.getByRole("radio", { name: "Утверждение без опоры на документы" }).click();
+  await multi.getByRole("checkbox", { name: "Recall@k" }).click();
+  await multi.getByRole("checkbox", { name: "BLEU" }).click();
+  await expect(set).toContainText("отвечено 3 из 3");
+  await page.reload();
+  await page.keyboard.press("Shift+Digit1");
+  await expect(open.getByLabel("Ваш ответ")).toHaveValue(answer);
+  await expect(single.getByRole("radio", { name: "Утверждение без опоры на документы" })).toHaveAttribute("aria-checked", "true");
+  await expect(multi.getByRole("checkbox", { name: "BLEU" })).toHaveAttribute("aria-checked", "true");
+
+  // Cmd/Ctrl+Enter submits from inside a Card.
+  await open.getByLabel("Ваш ответ").press("ControlOrMeta+Enter");
+
+  // Once graded, the set collapses into a result Card, also after reload.
+  const expand = set.getByRole("button", { name: "Развернуть" });
+  await expect(expand).toBeVisible();
+  await expect(set).toContainText("итог 5/9");
+  await expect(set.locator("[data-card-id]")).toHaveCount(0);
+  await page.reload();
+  await expect(expand).toBeVisible();
+
+  // Expanded, it shows the grades: tests checked by the app, the open answer from the Grader with its quote.
+  await expand.click();
+  await expect(single.getByLabel("Оценка 3 из 3")).toBeVisible();
+  await expect(multi.getByLabel("Оценка 0 из 3")).toBeVisible();
+  await expect(open.getByLabel("Оценка 2 из 3")).toBeVisible();
+  await expect(open).toContainText("«Режу документы по заголовкам.»");
+  await expect(open).toContainText("Не хватает проверки на метриках.");
+  await expect(set).toContainText("итог 5/9");
+  await open.getByRole("button", { name: "Показать эталон" }).click();
+  await expect(open).toContainText(`Эталон: ${openCard.reference_answer}`);
+
+  // The Chat receives a short summary.
+  await expect(chat(page)).toContainText("Подборка проверена: «Подборка на сегодня» — 5 из 9.");
+
+  // It folds back into the result Card.
+  await set.getByRole("button", { name: "Свернуть в итог" }).click();
+  await expect(expand).toBeVisible();
+});
+
+test("skip, training mode, and «Обсудить» bring a Card into the Chat", async ({ page, baseURL }) => {
+  await placePracticeSet(baseURL!, { title: "Тренировка", cards: [singleCard, multiCard] });
+  const set = practiceSet(page, "Тренировка");
+  await expect(async () => {
+    await page.keyboard.press("Shift+Digit1");
+    await expect(set).toContainText("Тренировка", { timeout: 1000 });
+  }).toPass();
+  const single = set.locator("[data-card-id]").filter({ hasText: singleCard.prompt });
+  const multi = set.locator("[data-card-id]").filter({ hasText: multiCard.prompt });
+
+  // Skipped is a status, not a score of 0.
+  await multi.getByRole("button", { name: "Пропустить" }).click();
+  await expect(multi).toContainText("Пропущено");
+  await expect(multi.getByLabel(/Оценка/)).toHaveCount(0);
+
+  // In training mode each Card is checked right away.
+  await set.getByLabel("Оценка сразу").click();
+  await expect(set.getByLabel("Оценка сразу")).toBeChecked();
+  await single.getByRole("radio", { name: "Медленный ответ" }).click();
+  await single.getByRole("button", { name: "Проверить" }).click();
+  // The last Card completes the set, which collapses into its result Card.
+  await expect(set).toContainText("итог 0/3");
+  await set.getByRole("button", { name: "Развернуть" }).click();
+  await expect(single.getByLabel("Оценка 0 из 3")).toBeVisible();
+
+  await single.getByRole("button", { name: "Обсудить →" }).click();
+  await expect(chat(page)).toContainText("Обсудим эту карточку.");
+  await expect(chat(page).getByRole("button", { name: `↗ ${singleCard.prompt}` })).toBeVisible();
+});
+
+test("the toolbar asks the Interviewer for today's Practice set", async ({ page }) => {
+  await page.getByRole("toolbar", { name: "Панель инструментов" }).getByRole("button", { name: "Подборка на сегодня" }).click();
+  await expect(chat(page)).toContainText("Хочу подборку на сегодня.");
+});
+
+test("Interviewer replies render basic Markdown without raw HTML or unsafe links", async ({ page, baseURL }) => {
+  await apiCall(baseURL!, apiPaths.chatMessages, { method: "POST", body: { text: "e2e-markdown" } });
+  const bubble = chat(page).locator("p", { hasText: "Итог:" }).locator("..");
+  await expect(bubble.locator("strong")).toHaveText("Итог:");
+  await expect(bubble.locator("li code")).toHaveText("B-tree");
+  await expect(bubble.getByRole("link", { name: "Документация" })).toHaveAttribute("href", "https://www.postgresql.org/docs/");
+  await expect(bubble).toContainText("<b>не HTML</b>");
+  await expect(bubble.locator("b")).toHaveCount(0);
+  await expect(bubble.getByRole("link", { name: "ссылка" })).toHaveCount(0);
+  await expect(bubble).not.toContainText("**");
+});
+
+test("the Interviewer points at a Card and a Topic: the Canvas pans to it and highlights it", async ({ page, baseURL }) => {
+  await placePracticeSet(baseURL!, { title: "Показать карточку", cards: [singleCard, { ...multiCard, prompt: "Показать: какие метрики у ретривера?" }] });
+  const snapshot = (await apiCall(baseURL!, apiPaths.canvas)) as CanvasSnapshot;
+  const set = snapshot.nodes.find((n) => n.kind === "practice_set" && n.data.title === "Показать карточку") as PracticeSetNode;
+  const cardId = set.data.cards[1]!.id;
+  await agentTurn(baseURL!, [{ callTool: { server: "interview", tool: "focus_canvas", arguments: { card_id: cardId } } }]);
+  const card = page.locator(`[data-card-id="${cardId}"]`);
+  await expect(card).toBeInViewport();
+  await expect(card).toHaveAttribute("data-highlighted", "");
+
+  await agentTurn(baseURL!, [{ callTool: { server: "interview", tool: "focus_canvas", arguments: { topic: "Evals" } } }]);
+  const map = page.getByRole("region", { name: "Карта навыков" });
+  await expect(map.getByRole("heading", { name: "Evals" })).toBeVisible();
+  await expect(map.locator("[data-topic-id]")).toHaveAttribute("data-highlighted", "");
+  // Later specs share the Canvas: the set collapses into a small result Card next to the Chat,
+  // so fitting everything keeps the Chat readable.
+  await submitUnfinishedSets(baseURL!);
+  await apiCall(baseURL!, apiPaths.canvasLayout, { method: "PUT", body: { updates: [{ nodeId: set.id, position: { x: 0, y: 360 } }] } });
+});

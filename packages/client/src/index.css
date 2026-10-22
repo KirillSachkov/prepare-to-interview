@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  @apply bg-stone-100 text-stone-800 antialiased;
+}
+
+.react-flow__node {
+  cursor: default;
+}
+
+/* Selection and the Hand tool (prototype variant A) */
+.canvas-shell .react-flow__node.selected {
+  outline: 2px solid rgb(129 140 248);
+  outline-offset: 4px;
+  border-radius: 22px;
+}
+.canvas-shell .react-flow__selection {
+  background: rgb(99 102 241 / 0.06);
+  border: 1px solid rgb(129 140 248);
+}
+.canvas-shell.tool-hand .react-flow__pane,
+.canvas-shell.tool-hand .react-flow__node {
+  cursor: grab;
+}
+.canvas-shell.tool-hand .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+
+.fade-in {
+  animation: fadeIn 0.35s ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Something the Interviewer pointed at with focus_canvas. */
+[data-highlighted] {
+  outline: 3px solid rgb(129 140 248);
+  outline-offset: 3px;
+  border-radius: 1rem;
+  transition: outline-color 0.3s;
+}

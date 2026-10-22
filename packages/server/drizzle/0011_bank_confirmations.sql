@@ -1,0 +1,1 @@
+ALTER TABLE `review_proposals` ADD `bank_action` text;

@@ -1,0 +1,90 @@
+// Bridges the node-type registry to React Flow: node conversion, zoom-aware rendering, menus.
+import { useStore, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
+import { createContext, useContext } from "react";
+import type { CanvasNode, CanvasNodeKind } from "@prepare-to-interview/shared";
+import type { MenuEntry } from "../shell/menu.ts";
+import { nodeTypeRegistry } from "./registry.ts";
+import type { NodeContent, NodeMenuContext, NodeTypeDefinition, NodeViewProps } from "./types.ts";
+
+/** Below this zoom nodes render their Summary instead of full details. */
+export const summaryZoom = 0.45;
+
+export interface FlowNodeData<K extends CanvasNodeKind = CanvasNodeKind> extends Record<string, unknown> {
+  content: NodeContent<K>;
+  collapsed: boolean;
+}
+
+export type FlowNode = Node<FlowNodeData, CanvasNodeKind>;
+
+export function toFlowNode(node: CanvasNode): FlowNode {
+  const size = node.collapsed ? undefined : nodeTypeRegistry[node.kind].size;
+  return {
+    id: node.id,
+    type: node.kind,
+    position: node.position,
+    data: { content: node.data, collapsed: node.collapsed },
+    dragHandle: nodeTypeRegistry[node.kind].dragHandle,
+    ...(size && { style: size }),
+  };
+}
+
+/** Takes a node's fresh content from the server; position, selection, and size stay. */
+export function withContent(node: FlowNode, fresh: CanvasNode): FlowNode {
+  return node.data.content === fresh.data ? node : { ...node, data: { ...node.data, content: fresh.data } };
+}
+
+/** Applies the collapsed state; an expanded node gets its type's size back, a collapsed one fits its content. */
+export function withCollapsed(node: FlowNode, collapsed: boolean): FlowNode {
+  if (node.data.collapsed === collapsed) return node;
+  const size = collapsed ? undefined : nodeTypeRegistry[node.type].size;
+  const { width: _width, height: _height, style: _style, ...rest } = node;
+  return { ...rest, ...(size && { style: size }), data: { ...node.data, collapsed } };
+}
+
+/** Lets node views show a short message, such as why an action failed. */
+export const NotifyContext = createContext<(message: string) => void>(() => undefined);
+
+/** Lets node views store their collapsed state without knowing the layout store. */
+export const SetCollapsedContext = createContext<(nodeId: string, collapsed: boolean) => void>(() => undefined);
+
+function viewProps<K extends CanvasNodeKind>(
+  id: string,
+  data: FlowNodeData,
+  selected: boolean,
+  setCollapsed: (nodeId: string, collapsed: boolean) => void,
+): NodeViewProps<K> {
+  return {
+    id,
+    content: data.content as NodeContent<K>,
+    collapsed: data.collapsed,
+    selected,
+    setCollapsed: (collapsed) => setCollapsed(id, collapsed),
+  };
+}
+
+function flowComponent<K extends CanvasNodeKind>(definition: NodeTypeDefinition<K>) {
+  const { View, Summary } = definition;
+  return function RegisteredNode({ id, data, selected }: NodeProps<FlowNode>) {
+    const zoomedOut = useStore((s) => s.transform[2] < summaryZoom);
+    const setCollapsed = useContext(SetCollapsedContext);
+    const props = viewProps<K>(id, data, selected, setCollapsed);
+    return zoomedOut ? <Summary {...props} /> : <View {...props} />;
+  };
+}
+
+const kinds = Object.keys(nodeTypeRegistry) as CanvasNodeKind[];
+
+/** Stable React Flow `nodeTypes`, one zoom-aware component per registered kind. */
+export const flowNodeTypes: NodeTypes = Object.fromEntries(
+  kinds.map((kind) => [kind, flowComponent(nodeTypeRegistry[kind] as NodeTypeDefinition<CanvasNodeKind>)]),
+);
+
+/** The node's own context-menu entries, or undefined when its type registers none. */
+export function nodeMenu(
+  node: FlowNode,
+  context: NodeMenuContext,
+  setCollapsed: (nodeId: string, collapsed: boolean) => void,
+): MenuEntry[] | undefined {
+  const definition = nodeTypeRegistry[node.type] as NodeTypeDefinition<CanvasNodeKind>;
+  return definition.menu?.(viewProps(node.id, node.data, Boolean(node.selected), setCollapsed), context);
+}

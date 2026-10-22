@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+
+savePrefix: ""
+
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+
+minimumReleaseAgeExclude:
+  - "@agentclientprotocol/sdk@2.0.1"
