@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@agentclientprotocol/sdk@2.0.1'
