@@ -2,6 +2,7 @@
 // submitted together; once graded it collapses into a small result Card.
 import { useContext, useEffect, useEffectEvent, useState, type ReactNode } from "react";
 import { wideSetCards, type CardView, type PracticeSetNode, type PracticeSetView } from "@prepare-to-interview/shared";
+import { heat } from "../skillmap/ui.tsx";
 import { cardAction, discussCard, setReveal, submitPracticeSet, type CardAction } from "../practice/practice-api.ts";
 import { draftOf, useCardDraft, useDraftChanges } from "../practice/drafts.ts";
 import { modLabel } from "../shell/hotkeys.ts";
@@ -355,7 +356,7 @@ function Ring({ value, children }: { value: number; children: ReactNode }) {
   const stroke = 4;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const color = value < 0.4 ? "#e11d48" : value < 0.7 ? "#d97706" : "#059669";
+  const color = heat(value).stroke;
   return (
     <div className="relative inline-grid shrink-0 place-items-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90" aria-hidden>

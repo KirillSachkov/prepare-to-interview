@@ -1,6 +1,7 @@
 // Practice arithmetic of the domain core: Hint ladder caps, test checking, Leitner scheduling,
 // Mastery, and readiness. Pure functions; prompts never compute these numbers.
 import type { QuestionType, TestOption, TopicPriority } from "../db/schema.ts";
+import { masteryBands } from "@prepare-to-interview/shared";
 
 export const maxScore = 3;
 /** Rungs of the Hint ladder a Card offers at most. */
@@ -113,8 +114,8 @@ export function masteryPercent(mastery: number | null): number | null {
   return mastery === null ? null : Math.round(mastery * 100);
 }
 
-/** A Topic whose Mastery is below this needs repetition. */
-export const weakMastery = 0.7;
+/** A Topic whose Mastery is below this needs repetition: anything short of the strong band. */
+export const weakMastery = masteryBands.strong;
 
 /** The local calendar date of an instant as `YYYY-MM-DD`. */
 export function localDate(date: Date): string {

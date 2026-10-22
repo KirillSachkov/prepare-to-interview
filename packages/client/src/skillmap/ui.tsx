@@ -1,5 +1,6 @@
 // Mastery visuals of the Skill map (prototype variant A): heat colours and rings.
 import type { ReactNode } from "react";
+import { masteryBand, type MasteryBand } from "@prepare-to-interview/shared";
 
 export interface Heat {
   stroke: string;
@@ -9,11 +10,15 @@ export interface Heat {
 
 /** Mastery colour and label: grey for a never-touched Topic, then red, amber, green. */
 export function heat(mastery: number | null): Heat {
-  if (mastery === null) return { stroke: "#d6d3d1", text: "text-stone-400", label: "не начата" };
-  if (mastery < 0.4) return { stroke: "#e11d48", text: "text-rose-600", label: "плавает" };
-  if (mastery < 0.7) return { stroke: "#d97706", text: "text-amber-600", label: "в процессе" };
-  return { stroke: "#059669", text: "text-emerald-600", label: "уверенно" };
+  return heats[masteryBand(mastery)];
 }
+
+const heats: Record<MasteryBand, Heat> = {
+  untouched: { stroke: "#d6d3d1", text: "text-stone-400", label: "не начата" },
+  weak: { stroke: "#e11d48", text: "text-rose-600", label: "плавает" },
+  learning: { stroke: "#d97706", text: "text-amber-600", label: "в процессе" },
+  strong: { stroke: "#059669", text: "text-emerald-600", label: "уверенно" },
+};
 
 export const percent = (mastery: number | null) => (mastery === null ? null : Math.round(mastery * 100));
 

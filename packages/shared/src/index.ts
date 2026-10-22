@@ -83,6 +83,19 @@ export const practiceSetPaths = {
   reveal: (setId: string) => `/api/practice-sets/${setId}/reveal`,
 } as const;
 
+/**
+ * Mastery bands, the one place both the server (weak Topics in the Briefing) and the UI (colours,
+ * labels) read: below `weak` a Topic is weak, from `strong` it is mastered, in between in progress.
+ */
+export const masteryBands = { weak: 0.4, strong: 0.7 } as const;
+export type MasteryBand = "untouched" | "weak" | "learning" | "strong";
+
+export function masteryBand(mastery: number | null): MasteryBand {
+  if (mastery === null) return "untouched";
+  if (mastery < masteryBands.weak) return "weak";
+  return mastery < masteryBands.strong ? "learning" : "strong";
+}
+
 export const topicPriorities = ["high", "medium", "low"] as const;
 export type TopicPriority = (typeof topicPriorities)[number];
 export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;

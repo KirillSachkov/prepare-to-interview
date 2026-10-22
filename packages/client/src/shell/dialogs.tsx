@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type SyntheticEvent } from "react";
 import type { TopicProgress } from "@prepare-to-interview/shared";
 import { fetchProgress } from "../practice/practice-api.ts";
+import { heat as skillHeat } from "../skillmap/ui.tsx";
 import { settingsSections } from "../settings/sections.ts";
 import type { CommandGroup, Commands } from "./commands.ts";
 import { modLabel } from "./hotkeys.ts";
@@ -191,8 +192,5 @@ export function TopicPracticeDialog({ close, choose }: { close: () => void; choo
 
 /** Mastery colour: grey for a never-touched Topic, then red, amber, green. */
 function heat(mastery: number | null): string {
-  if (mastery === null) return "#d6d3d1";
-  if (mastery < 0.4) return "#e11d48";
-  if (mastery < 0.7) return "#d97706";
-  return "#059669";
+  return skillHeat(mastery).stroke;
 }
