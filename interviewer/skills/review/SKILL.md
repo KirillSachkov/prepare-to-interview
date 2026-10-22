@@ -33,8 +33,8 @@ In the same turn, call `end_session` once:
   new list (read the current one with `get_profile`).
 
 The app shows the proposed changes to the Candidate with buttons to save or drop them; the
-Candidate's click is the confirmation. Mention in one sentence that they can confirm what to
-remember below. `save_profile` and `record_decision` are refused during a review: proposals go
+Candidate's click is the confirmation. Only when you pass `profile` or `decisions`, mention in
+one sentence that they can confirm what to remember below; without them, say nothing about it. `save_profile` and `record_decision` are refused during a review: proposals go
 through `end_session`.
 
 When the Candidate replies after the review, continue normally; the app moves the Chat to a

@@ -10,9 +10,10 @@ import { parseArgs } from "node:util";
 import {
   agentIds,
   apiPaths,
+  bankPaths,
   type AgentId,
   type AgentsResponse,
-  type CanvasSnapshot,
+  type BankResponse,
   type ChatMessage,
   type ChatSnapshot,
 } from "@prepare-to-interview/shared";
@@ -108,7 +109,8 @@ function check(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-const code = `Smoke ${Math.random().toString(36).slice(2, 7)}`;
+const code = `Smoke${Math.random().toString(36).slice(2, 7)}`;
+const question = `${code}: what does a B-tree index speed up?`;
 let server = await startServer({ dataDir, clientDir, port: 0 });
 console.log(`Smoke test for ${agent}${model ? ` (model ${model})` : ""}; data in ${root}`);
 
@@ -131,25 +133,27 @@ try {
     });
 
     if (started) {
+      // The hidden state sets the reply language (ru by default); the persona forbids quoting it, so
+      // the step checks the behaviour: an English question gets a Russian answer.
       await step("hidden state", async () => {
-        const reply = await turn(
-          server,
-          "Which language code does the hidden app state tell you to reply in? Answer with the code only.",
-        );
-        check(/\bru\b/i.test(reply.text), `expected "ru", got: ${reply.text}`);
-        return reply.text.trim();
+        const reply = await turn(server, "What is a database index? Answer in two short sentences.");
+        const letters = reply.text.match(/\p{L}/gu) ?? [];
+        const cyrillic = letters.filter((l) => /\p{Script=Cyrillic}/u.test(l)).length;
+        check(letters.length > 0 && cyrillic / letters.length > 0.5, `expected a reply in Russian, got: ${reply.text}`);
+        check(!/session_state|hidden state/i.test(reply.text), `the reply mentions the hidden state: ${reply.text}`);
+        return reply.text.trim().slice(0, 160);
       });
 
       await step("app MCP tool", async () => {
         const reply = await turn(
           server,
-          `Please place a note on my Canvas with the title "${code}" using the app's tool. Reply in one sentence.`,
+          `Please add my own question to the Question bank with the app's tool: topic "Smoke", prompt "${question}". Reply in one sentence.`,
         );
-        const canvas = (await api(server, apiPaths.canvas)).body as CanvasSnapshot;
-        check(canvas.nodes.some((n) => n.data.title === code), `no note "${code}" on the Canvas`);
-        const call = reply.toolCalls.find((c) => c.tool === "demo_place_note");
+        const bank = (await api(server, bankPaths.bank)).body as BankResponse;
+        check(bank.topics.some((t) => t.questions.some((q) => q.prompt.includes(code))), `no Question with "${code}" in the bank`);
+        const call = reply.toolCalls.find((c) => c.tool === "add_question");
         check(call?.server === "interview", `tool call not matched by server and tool: ${JSON.stringify(reply.toolCalls)}`);
-        return `note placed; agent named the tool "${call?.title ?? ""}"`;
+        return `Question added; agent named the tool "${call?.title ?? ""}"`;
       });
 
       await step("tool allowlist", async () => {
@@ -169,7 +173,8 @@ try {
         const history = await chat(server);
         check(history.messages.length >= 8, `history not reloaded: ${history.messages.length} messages`);
         check(!JSON.stringify(history).includes("session_state"), "hidden state leaked into the stored Chat");
-        const reply = await turn(server, "What was the title of the note you placed? Answer with the title only.");
+        // The resumed Agent session remembers the conversation before the restart.
+        const reply = await turn(server, "Which code word did the question I asked you to add to the bank start with? Answer with the code word only.");
         check(reply.text.includes(code), `expected "${code}", got: ${reply.text}`);
         return reply.text.trim();
       });
