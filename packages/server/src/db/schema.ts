@@ -28,14 +28,17 @@ export const settings = sqliteTable("settings", {
   value: text("value", { mode: "json" }).notNull(),
 });
 
-export const agentSessionRoles = ["chat", "grader"] as const;
+export const agentSessionRoles = ["chat", "grader", "research"] as const;
 export type AgentSessionRole = (typeof agentSessionRoles)[number];
 
 /** Internal conversations with the coding agent; the Candidate never manages them. */
 export const agentSessions = sqliteTable("agent_sessions", {
   id: text("id").primaryKey(),
   agent: text("agent").notNull(),
-  /** `chat` sessions carry the Chat; `grader` sessions grade one open answer and end. */
+  /**
+   * `chat` sessions carry the Chat; `grader` sessions grade one open answer and end; `research`
+   * sessions run one Research batch in the background and end.
+   */
   role: text("role", { enum: agentSessionRoles }).notNull().default("chat"),
   /** The agent's own session id, used to load the session after a restart. */
   externalId: text("external_id").notNull(),
@@ -171,6 +174,8 @@ export const questions = sqliteTable("questions", {
    * Interviewer composing a Practice set the Candidate asked for (enters as active).
    */
   origin: text("origin", { enum: questionOrigins }).notNull(),
+  /** The Research batch (a `research` Activity) that proposed the Question. */
+  activityId: text("activity_id").references((): AnySQLiteColumn => activities.id),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -290,4 +295,107 @@ export const questionSchedule = sqliteTable("question_schedule", {
   /** Local calendar date `YYYY-MM-DD` from which the Question is Due. */
   dueOn: text("due_on").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+// Research (ADR-0003): an immutable archive of raw Sources, the Interviewer's Markdown notes with
+// Source links, and Topics Research proposes for a Preparation target. Files live under
+// `<data dir>/research/`; these tables index them.
+
+export const sourceKinds = ["article", "documentation", "vacancy", "question_list", "forum", "video_page", "candidate_material", "other"] as const;
+export type SourceKind = (typeof sourceKinds)[number];
+
+/** One archived raw Source; never changed once written. The same content is archived once. */
+export const sources = sqliteTable(
+  "sources",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: sourceKinds }).notNull(),
+    /** Where the content came from; `null` for the Candidate's pasted material. */
+    url: text("url"),
+    title: text("title"),
+    /** When the content was fetched or pasted. */
+    fetchedAt: integer("fetched_at", { mode: "timestamp_ms" }).notNull(),
+    /** SHA-256 of the archived content, hex. */
+    hash: text("hash").notNull(),
+    /** Path of the archived file, relative to the research directory. */
+    archivePath: text("archive_path").notNull(),
+    /** The Research batch that archived it, if any. */
+    activityId: text("activity_id").references(() => activities.id),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("sources_hash").on(t.hash)],
+);
+
+export const questionSources = sqliteTable(
+  "question_sources",
+  {
+    questionId: text("question_id")
+      .notNull()
+      .references(() => questions.id),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+  },
+  (t) => [primaryKey({ columns: [t.questionId, t.sourceId] })],
+);
+
+export const topicSources = sqliteTable(
+  "topic_sources",
+  {
+    topicId: text("topic_id")
+      .notNull()
+      .references(() => topics.id),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+  },
+  (t) => [primaryKey({ columns: [t.topicId, t.sourceId] })],
+);
+
+/** The Interviewer's Markdown notes from Research; mirrored to `research/notes/<slug>.md`. */
+export const researchNotes = sqliteTable(
+  "research_notes",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("research_notes_slug").on(t.slug)],
+);
+
+export const noteSources = sqliteTable(
+  "note_sources",
+  {
+    noteId: text("note_id")
+      .notNull()
+      .references(() => researchNotes.id, { onDelete: "cascade" }),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id),
+  },
+  (t) => [primaryKey({ columns: [t.noteId, t.sourceId] })],
+);
+
+export const proposalStatuses = ["proposed", "approved", "rejected"] as const;
+export type ProposalStatus = (typeof proposalStatuses)[number];
+
+/** A Topic Research proposes for a Preparation target; approved, it joins the target's Topics. */
+export const topicProposals = sqliteTable("topic_proposals", {
+  id: text("id").primaryKey(),
+  targetId: text("target_id")
+    .notNull()
+    .references(() => preparationTargets.id, { onDelete: "cascade" }),
+  topicId: text("topic_id")
+    .notNull()
+    .references(() => topics.id),
+  priority: text("priority", { enum: topicPriorities }).notNull(),
+  /** Why the Topic matters for the target, such as how many vacancies name it. */
+  reason: text("reason"),
+  status: text("status", { enum: proposalStatuses }).notNull(),
+  activityId: text("activity_id").references(() => activities.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });

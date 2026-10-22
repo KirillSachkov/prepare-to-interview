@@ -81,6 +81,15 @@ export interface ShellControls {
   submitPractice: () => void;
   /** Questions of the active Preparation target Due today. */
   due: number | null;
+  /** Whether the Skill map view is open instead of the Canvas. */
+  skillMap: boolean;
+  toggleSkillMap: () => void;
+  /** Opens the Skill map on the Proposed queue. */
+  openProposed: () => void;
+  /** Asks the Interviewer in the Chat to run Research. */
+  research: () => void;
+  /** Proposed items waiting for the Candidate's review. */
+  proposed: number;
 }
 
 export function buildCommands(c: ShellControls): Commands {
@@ -120,6 +129,7 @@ export function buildCommands(c: ShellControls): Commands {
       group: "Инструменты",
       icon: "research",
       hotkey: letter("R"),
+      run: c.research,
     },
     "bank.open": {
       id: "bank.open",
@@ -128,6 +138,8 @@ export function buildCommands(c: ShellControls): Commands {
       icon: "bank",
       hotkey: letter("B"),
       accentBadge: true,
+      run: c.openProposed,
+      ...(c.proposed ? { badge: c.proposed } : {}),
     },
     "view.skillMap": {
       id: "view.skillMap",
@@ -135,6 +147,8 @@ export function buildCommands(c: ShellControls): Commands {
       group: "Инструменты",
       icon: "map",
       hotkey: letter("K"),
+      run: c.toggleSkillMap,
+      active: c.skillMap,
     },
     "chat.toggle": {
       id: "chat.toggle",

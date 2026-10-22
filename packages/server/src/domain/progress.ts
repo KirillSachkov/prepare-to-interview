@@ -69,6 +69,7 @@ export class Progress {
         return m === undefined || m === null ? [] : [m];
       });
       return {
+        topicId: t.topicId,
         name: t.name,
         group: t.parentId ? (view.names.get(t.parentId) ?? null) : null,
         priority: t.priority,

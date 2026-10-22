@@ -21,6 +21,21 @@ export interface HiddenState {
   has_profile: boolean;
   /** The Candidate's unsubmitted Practice set on the Canvas. */
   unfinished_practice_set: { id: string; title: string; answered: number; cards: number } | null;
+  /** Whether a Research batch runs in the background, and how many Proposed items wait for review. */
+  research: ResearchState;
+}
+
+export interface ResearchState {
+  running: boolean;
+  proposed_waiting: number;
+}
+
+/**
+ * Hidden context blocks another part of the app has for the next turn, such as a finished
+ * Research batch; `sent` runs once the agent took the turn.
+ */
+export interface TurnContextSource {
+  take: () => { blocks: { uri: string; text: string }[]; sent: () => void };
 }
 
 export interface InterviewerOptions {
@@ -31,6 +46,9 @@ export interface InterviewerOptions {
   /** The app's MCP servers; read lazily because the URL is known only after the server listens. */
   mcpServers: () => McpServerConfig[];
   now?: () => Date;
+  /** Further hidden context for each turn. */
+  turnContext?: TurnContextSource[];
+  research?: () => ResearchState;
 }
 
 /** Activities that have a skill file in the product directory. */
@@ -53,6 +71,8 @@ export class Interviewer {
   readonly #practice: Practice;
   readonly #mcpServers: () => McpServerConfig[];
   readonly #now: () => Date;
+  readonly #turnContext: TurnContextSource[];
+  readonly #research: () => ResearchState;
   /** `<agent session>:<activity>` pairs whose skill the agent already has. */
   readonly #delivered = new Set<string>();
   #lastSession: string | undefined;
@@ -66,6 +86,8 @@ export class Interviewer {
     this.#practice = options.practice;
     this.#mcpServers = options.mcpServers;
     this.#now = options.now ?? (() => new Date());
+    this.#turnContext = options.turnContext ?? [];
+    this.#research = options.research ?? (() => ({ running: false, proposed_waiting: 0 }));
   }
 
   /**
@@ -92,11 +114,14 @@ export class Interviewer {
     if (options.cardId) {
       context.push({ uri: appContextUri(`card/${options.cardId}`), text: describeCard(this.#practice.cardContext(options.cardId)) });
     }
+    const extra = this.#turnContext.map((source) => source.take());
+    for (const part of extra) context.push(...part.blocks);
     return {
       input: { text, hiddenState, ...(context.length && { context }) },
       sent: () => {
         if (sendSkill) this.#delivered.add(key);
         this.#practice.markReported(results.map((r) => r.setId));
+        for (const part of extra) part.sent();
       },
     };
   }
@@ -136,6 +161,7 @@ export class Interviewer {
       },
       has_profile: profile !== null,
       unfinished_practice_set: unfinished(this.#practice.unfinished()),
+      research: this.#research(),
     };
   }
 }

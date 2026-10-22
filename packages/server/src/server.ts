@@ -15,11 +15,16 @@ import { loopbackHost } from "./config.ts";
 import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
 import { Domain } from "./domain/domain.ts";
+import { Bank } from "./domain/bank.ts";
 import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
+import { createResearchTools } from "./mcp/research-tools.ts";
 import { createTools } from "./mcp/tools.ts";
+import { Researcher } from "./interviewer/researcher.ts";
+import { ResearchArchive } from "./research/archive.ts";
+import { Search } from "./search/search.ts";
 import { Grader } from "./interviewer/grader.ts";
 import { defaultContentDir, Interviewer } from "./interviewer/interviewer.ts";
 import { PracticeRunner } from "./interviewer/practice-runner.ts";
@@ -62,6 +67,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const now = options.now ?? (() => new Date());
   const domain = new Domain(db, events, now);
   const practice = new Practice({ db, domain, canvas, now });
+  const bank = new Bank({ db, domain, events, now });
+  const archive = new ResearchArchive({ db, root: path.join(dataDir.root, "research"), now });
+  const search = new Search(db);
+  // Filled once the Chat exists: Research posts its results into the Chat.
+  const late: { researcher?: Researcher } = {};
   const contentDir = options.interviewerDir ?? defaultContentDir;
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
@@ -72,6 +82,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     practice,
     mcpServers: () => mcpServers,
     now,
+    turnContext: [{ take: () => late.researcher?.pendingContext() ?? { blocks: [], sent: () => undefined } }],
+    research: () => ({ running: late.researcher?.running ?? false, proposed_waiting: bank.proposedCount() }),
   });
   const drivers = cachedDrivers(options.drivers ?? acpDrivers(dataDir.root));
   const chat = new Chat({
@@ -84,6 +96,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   const grader = new Grader({ db, settings, drivers: drivers.get, contentDir });
   const runner = new PracticeRunner({ practice, grader, chat });
+  const research = new Researcher({
+    db,
+    domain,
+    bank,
+    archive,
+    settings,
+    drivers: drivers.get,
+    contentDir,
+    mcpServers: () => mcpServers,
+    post: (text) => chat.post(text),
+  });
+  late.researcher = research;
 
   const app = createApp({
     token: dataDir.token,
@@ -96,7 +120,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
-    mcp: createMcpHandler(createTools({ domain, practice, interviewer }), appVersion),
+    mcp: createMcpHandler(
+      [...createTools({ domain, practice, interviewer }), ...createResearchTools({ domain, bank, archive, search, researcher: research })],
+      appVersion,
+    ),
+    bankRoutes: { bank, search },
     clientDir: options.clientDir ?? defaultClientDir,
   });
 
@@ -129,6 +157,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     close: async () => {
       await chat.close();
       await runner.close();
+      await research.close();
       await drivers.dispose();
       for (const client of wss.clients) client.terminate();
       wss.close();

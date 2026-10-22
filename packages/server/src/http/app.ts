@@ -26,6 +26,7 @@ import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
 import { hostGuard, tokenGuard } from "./access.ts";
+import { registerBankRoutes, type BankRouteDeps } from "./bank-routes.ts";
 
 export interface AppDeps {
   token: string;
@@ -39,6 +40,8 @@ export interface AppDeps {
   detectAgents: AgentDetector;
   events: EventBus;
   mcp: McpHandler;
+  /** The Skill map, the Question bank, the Proposed queue, and search. */
+  bankRoutes: Omit<BankRouteDeps, "chat">;
   /** Directory with the built client (`index.html` and assets). */
   clientDir: string;
 }
@@ -176,6 +179,8 @@ export function createApp(deps: AppDeps): Hono {
       };
     }),
   );
+
+  registerBankRoutes(app, { ...deps.bankRoutes, chat: deps.chat });
 
   app.all("/api/*", (c) => c.text("Not found", 404));
 

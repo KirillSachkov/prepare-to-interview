@@ -50,6 +50,20 @@
       "when": 1792695514163,
       "tag": "0006_practice_set_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792696250629,
+      "tag": "0007_research",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792696254312,
+      "tag": "0008_search_index",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,8 @@ import { useEffect, useState } from "react";
 import { chatNodeId, type PracticeRequest, type PracticeSetNode } from "@prepare-to-interview/shared";
 import { flowNodeTypes, nodeMenu, NotifyContext, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
 import { focusCardEvent } from "../practice/focus.ts";
+import { requestResearch, useProposedCount } from "../skillmap/skillmap-api.ts";
+import { SkillMapView, type SkillMapTab } from "../skillmap/SkillMapView.tsx";
 import { requestPractice, submitPracticeSet } from "../practice/practice-api.ts";
 import { buildCommands, type Commands, type Tool } from "./commands.ts";
 import { ContextMenu, type OpenMenu } from "./ContextMenu.tsx";
@@ -50,6 +52,9 @@ export function CanvasShell() {
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { active: activeTarget } = useTargets();
+  const [skillMap, setSkillMap] = useState(false);
+  const [mapTab, setMapTab] = useState<SkillMapTab>("proposed");
+  const proposed = useProposedCount();
 
   const showChat = () => {
     setFocusRequest(chatNodeId);
@@ -58,6 +63,7 @@ export function CanvasShell() {
 
   const askForPractice = (body: PracticeRequest) => {
     setDialog(null);
+    setSkillMap(false);
     requestPractice(body)
       .then(showChat)
       .catch((e: unknown) => setNotice(`Не удалось попросить подборку: ${e instanceof Error ? e.message : String(e)}`));
@@ -103,6 +109,19 @@ export function CanvasShell() {
         .catch((e: unknown) => setNotice(`Не удалось отправить подборку: ${e instanceof Error ? e.message : String(e)}`));
     },
     due: activeTarget?.due ?? null,
+    skillMap,
+    toggleSkillMap: () => setSkillMap((open) => !open),
+    openProposed: () => {
+      setMapTab("proposed");
+      setSkillMap(true);
+    },
+    research: () => {
+      setSkillMap(false);
+      requestResearch()
+        .then(showChat)
+        .catch((e: unknown) => setNotice(`Не удалось попросить исследование: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    proposed,
     escape: () => {
       setMenu(null);
       setDialog(null);
@@ -224,6 +243,16 @@ export function CanvasShell() {
         >
           {grid && <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#d6d3d1" />}
         </ReactFlow>
+
+        {skillMap && (
+          <SkillMapView
+            tab={mapTab}
+            setTab={setMapTab}
+            practise={(topic) => askForPractice({ kind: "topic", topic })}
+            research={commands["research.start"].run ?? (() => undefined)}
+            notify={setNotice}
+          />
+        )}
 
         {!zen && (
           <>

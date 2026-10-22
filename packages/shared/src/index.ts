@@ -1,6 +1,8 @@
 // Contract between the app server and the browser client: REST paths, Canvas and Chat shapes, and
 // live events pushed over the WebSocket channel.
 
+export * from "./bank.ts";
+
 export const apiPaths = {
   canvas: "/api/canvas",
   /** PUT a {@link LayoutUpdateRequest}: where nodes sit and whether they are collapsed. */
@@ -272,7 +274,9 @@ export type ServerEvent =
   | { type: "chat.busy"; busy: boolean }
   | { type: "agent.settings"; settings: AgentSettings }
   /** Preparation targets or the active one changed. */
-  | { type: "targets.changed"; targets: TargetsResponse };
+  | { type: "targets.changed"; targets: TargetsResponse }
+  /** The Question bank or the Proposed queue changed; `proposed` items wait for review. */
+  | { type: "bank.changed"; proposed: number };
 
 // Preparation targets and the Question bank
 
@@ -330,6 +334,7 @@ export interface RevealRequest {
 }
 
 export interface TopicProgress {
+  topicId: string;
   name: string;
   /** Group Topic this one nests under. */
   group: string | null;

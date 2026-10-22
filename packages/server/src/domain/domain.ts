@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { TargetsResponse, TargetSummary } from "@prepare-to-interview/shared";
 import type { Database } from "../db/database.ts";
 import {
@@ -213,18 +213,63 @@ export class Domain {
     return { activeId: this.activeTargetId(), targets: rows.map((row) => this.#summary(row)) };
   }
 
-  /** Topic names of the Question bank, alphabetically. */
+  /**
+   * Topic names of the Question bank, alphabetically. A Topic that exists only through a Research
+   * proposal stays out until the Candidate approves it.
+   */
   topicNames(): string[] {
     return this.#db
       .select({ name: topics.name })
       .from(topics)
+      .where(
+        sql`not exists (select 1 from topic_proposals p where p.topic_id = ${topics.id} and p.status <> 'approved')
+          or exists (select 1 from target_topics tt where tt.topic_id = ${topics.id})
+          or exists (select 1 from questions q where q.topic_id = ${topics.id} and q.status = 'active')`,
+      )
       .all()
       .map((t) => t.name)
       .sort((a, b) => a.localeCompare(b));
   }
 
+  /**
+   * The Activity the Chat works in. A Research batch runs in its own hidden Agent session in the
+   * background (`startBackgroundActivity`), so it is never the Chat's Activity.
+   */
   currentActivity(): Activity | null {
-    return this.#db.select().from(activities).where(eq(activities.status, "active")).get() ?? null;
+    return this.#db.select().from(activities).where(and(eq(activities.status, "active"), foreground)).get() ?? null;
+  }
+
+  /**
+   * Starts a background Activity, a Research batch, beside the Chat's Activity; at most one runs.
+   * Returns `null` while one is still running.
+   */
+  startBackgroundActivity(kind: "research", targetId: string): Activity | null {
+    return this.#db.transaction((tx) => {
+      const running = tx.select().from(activities).where(and(eq(activities.status, "active"), eq(activities.kind, kind))).get();
+      if (running) return null;
+      const activity: Activity = { id: crypto.randomUUID(), kind, status: "active", targetId, startedAt: this.#now(), endedAt: null, summary: null };
+      tx.insert(activities).values(activity).run();
+      return activity;
+    });
+  }
+
+  /** Ends a background Activity that is still running. */
+  endBackgroundActivity(activityId: string, status: "completed" | "abandoned", summary: string): void {
+    this.#db
+      .update(activities)
+      .set({ status, summary, endedAt: this.#now() })
+      .where(and(eq(activities.id, activityId), eq(activities.status, "active")))
+      .run();
+  }
+
+  /** The running background Activity of a kind, such as the Research batch. */
+  backgroundActivity(kind: "research"): Activity | null {
+    return this.#db.select().from(activities).where(and(eq(activities.status, "active"), eq(activities.kind, kind))).get() ?? null;
+  }
+
+  /** Topic id for a name, creating the Topic (and its group) when the bank has none by that name. */
+  ensureTopic(tx: Tx, name: string, group?: string | null): string {
+    return this.#findOrCreateTopic(tx, name, group ?? undefined);
   }
 
   /** Whether onboarding ever started, finished or not; a skipped onboarding does not restart by itself. */
@@ -433,7 +478,7 @@ export class Domain {
    */
   startActivity(kind: ActivityKind, options: { targetId?: string | null; newTarget?: boolean } = {}): { activity: Activity; started: boolean } {
     const result = this.#db.transaction((tx) => {
-      const current = tx.select().from(activities).where(eq(activities.status, "active")).get();
+      const current = tx.select().from(activities).where(and(eq(activities.status, "active"), foreground)).get();
       const setUpTarget = options.newTarget === true && current?.kind === "onboarding" && current.targetId !== null;
       if (current?.kind === kind && !setUpTarget) return { activity: current, started: false };
       const now = this.#now();
@@ -633,6 +678,9 @@ export class Domain {
   }
 }
 
+/** Activities the Chat runs in; Research runs beside them. */
+const foreground = ne(activities.kind, "research");
+
 /** A record the same call has just written; its absence is a bug, not a domain refusal. */
 function present<T>(value: T | null | undefined): T {
   if (value === null || value === undefined) throw new Error("Domain record vanished right after it was written.");
@@ -658,7 +706,7 @@ function toVacancy(v: Partial<Vacancy>): Vacancy {
   return { title: v.title ?? null, url: v.url ?? null, text: v.text ?? null };
 }
 
-function checkOptions(type: QuestionType, options: TestOption[] | undefined): void {
+export function checkOptions(type: QuestionType, options: TestOption[] | undefined): void {
   if (type === "open") {
     if (options?.length) {
       throw new DomainError("An open Question has no options.", 'Drop "options", or use type "single_choice" or "multiple_choice".');
@@ -674,7 +722,7 @@ function checkOptions(type: QuestionType, options: TestOption[] | undefined): vo
   }
 }
 
-function checkHints(hints: string[] | null | undefined): void {
+export function checkHints(hints: string[] | null | undefined): void {
   if (hints && hints.length > maxHintRungs) {
     throw new DomainError(`A Question has at most ${maxHintRungs} hint rungs.`, `Pass up to ${maxHintRungs} hints, mildest first.`);
   }
