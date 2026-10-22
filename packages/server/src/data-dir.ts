@@ -18,19 +18,33 @@ export function openDataDir(root: string): DataDir {
 }
 
 function loadOrCreateToken(file: string): string {
-  try {
-    const existing = fs.readFileSync(file, "utf8").trim();
-    if (existing) return existing;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
+  const existing = readToken(file);
+  if (existing) return existing;
+  // Write the token to a private temp file, then link it into place: the token file is never
+  // observed empty, and if another process starting at the same time wins, its token is used.
   const token = crypto.randomBytes(32).toString("base64url");
+  const temp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(temp, token + "\n", { mode: 0o600 });
   try {
-    fs.writeFileSync(file, token + "\n", { mode: 0o600, flag: "wx" });
+    fs.linkSync(temp, file);
+    return token;
   } catch (error) {
-    // Another process created the token first: use theirs so both print a working URL.
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return loadOrCreateToken(file);
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const winner = readToken(file);
+    if (winner) return winner;
+    // An empty or blank token file (for example after a crash) is replaced.
+    fs.renameSync(temp, file);
+    return token;
+  } finally {
+    fs.rmSync(temp, { force: true });
+  }
+}
+
+function readToken(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8").trim() || undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
-  return token;
 }

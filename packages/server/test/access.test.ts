@@ -45,7 +45,10 @@ describe("access to the app server", () => {
       .flat()
       .find((a) => a && a.family === "IPv4" && !a.internal)?.address;
     if (lanAddress) {
-      await expect(fetch(`http://${lanAddress}:${server.port}/`)).rejects.toThrow();
+      const refused = await fetch(`http://${lanAddress}:${server.port}/`, { signal: AbortSignal.timeout(2000) }).catch(
+        (error: unknown) => (error as { cause?: { code?: string } }).cause?.code,
+      );
+      expect(refused).toBe("ECONNREFUSED");
     }
   });
 
@@ -86,14 +89,10 @@ describe("access to the app server", () => {
   it("rejects browser requests from a foreign origin", async () => {
     const server = await start();
     const origin = new URL(server.url).origin;
-    const ok = await fetch(origin + apiPaths.canvas, { headers: { ...authHeaders(server), Origin: origin } });
-    expect(ok.status).toBe(200);
-    const evil = await fetch(origin + apiPaths.mcp, {
-      method: "POST",
-      headers: { ...authHeaders(server), Origin: "http://evil.example" },
-      body: "{}",
-    });
-    expect(evil.status).toBe(403);
+    const fromOrigin = (value: string) =>
+      fetch(origin + apiPaths.canvas, { headers: { ...authHeaders(server), Origin: value } });
+    expect((await fromOrigin(origin)).status).toBe(200);
+    expect((await fromOrigin("http://evil.example")).status).toBe(403);
   });
 
   it("rejects requests addressed to a foreign host name", async () => {
@@ -115,6 +114,17 @@ describe("access to the app server", () => {
 });
 
 describe("data directory", () => {
+  it("replaces an empty token file left behind by a crash", async () => {
+    const dirs = makeTempDirs();
+    cleanups.push(dirs.cleanup);
+    fs.mkdirSync(dirs.dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dirs.dataDir, "token"), "");
+    const server = await start(dirs);
+    expect(server.token.length).toBeGreaterThanOrEqual(32);
+    expect(fs.readFileSync(path.join(dirs.dataDir, "token"), "utf8").trim()).toBe(server.token);
+    expect(fs.readdirSync(dirs.dataDir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
   it("defaults to ~/.prepare-to-interview", () => {
     expect(resolveDataDir({})).toBe(path.join(os.homedir(), ".prepare-to-interview"));
   });
