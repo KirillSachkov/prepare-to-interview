@@ -30,6 +30,13 @@ export interface ChatDeps {
   settings: Settings;
   interviewer: Interviewer;
   drivers: DriverProvider;
+  /** The prompt of a Card a message refers to, for the chip the Chat shows. */
+  cardPrompt?: (cardId: string) => string | undefined;
+}
+
+export interface SendOptions {
+  /** The Card the message is about («Обсудить»); the Interviewer receives its context hidden. */
+  cardId?: string;
 }
 
 interface LiveSession {
@@ -75,7 +82,7 @@ export class Chat {
   snapshot(): ChatSnapshot {
     const rows = this.#deps.db.select().from(chatMessages).orderBy(chatMessages.seq).all();
     const reply = this.#turn?.reply;
-    const messages = rows.map((row) => (reply && row.id === reply.id ? visible(reply) : toMessage(row)));
+    const messages = rows.map((row) => (reply && row.id === reply.id ? visible(reply) : this.#toMessage(row)));
     return { messages, busy: this.#turn !== undefined };
   }
 
@@ -85,18 +92,26 @@ export class Chat {
   }
 
   /** Stores the Candidate's message and starts the Interviewer's reply in the background. */
-  send(text: string): ChatMessage {
+  send(text: string, options: SendOptions = {}): ChatMessage {
     if (this.#closing) throw new ChatBusyError("The app is shutting down.");
     if (this.#turn) throw new ChatBusyError();
-    const message = this.#insert("candidate", text, "complete");
+    const message = this.#insert("candidate", text, "complete", undefined, options.cardId);
     const turn: Turn = { stopRequested: false, savedAt: Date.now(), done: Promise.resolve() };
     this.#turn = turn;
     this.#deps.events.publish({ type: "chat.busy", busy: true });
-    turn.done = this.#run(turn, text).finally(() => {
+    turn.done = this.#run(turn, text, options).finally(() => {
       this.#turn = undefined;
       this.#deps.events.publish({ type: "chat.busy", busy: false });
     });
     return message;
+  }
+
+  /**
+   * Adds a message the app composed on the Interviewer's side, such as a grading summary. The agent
+   * does not see it in the Chat; the Interviewer orchestration passes the facts on as hidden context.
+   */
+  post(text: string): ChatMessage {
+    return this.#insert("interviewer", text, "complete");
   }
 
   /** Stops the running reply; the partial reply stays in the Chat marked as cancelled. */
@@ -122,7 +137,7 @@ export class Chat {
     await this.#dropLive();
   }
 
-  async #run(turn: Turn, text: string): Promise<void> {
+  async #run(turn: Turn, text: string, options: SendOptions): Promise<void> {
     const { agent, models } = this.#deps.settings.agentSettings();
     if (!agent) {
       this.#insert("notice", noAgentNotice, "complete");
@@ -132,7 +147,7 @@ export class Chat {
       const live = await this.#session(agent, models[agent]);
       if (turn.stopRequested) return;
       turn.prompting = live.session;
-      const prepared = this.#deps.interviewer.turnInput(text, live.rowId);
+      const prepared = this.#deps.interviewer.turnInput(text, live.rowId, options);
       const result = await live.session.prompt(prepared.input, (event) => this.#onEvent(turn, live, event));
       prepared.sent();
       this.#finishReply(turn, result.stopReason === "cancelled" ? "cancelled" : "complete");
@@ -155,7 +170,7 @@ export class Chat {
     const stored = this.#deps.db
       .select()
       .from(agentSessions)
-      .where(and(eq(agentSessions.agent, agent), isNull(agentSessions.endedAt)))
+      .where(and(eq(agentSessions.agent, agent), eq(agentSessions.role, "chat"), isNull(agentSessions.endedAt)))
       .orderBy(desc(agentSessions.startedAt))
       .get();
     if (stored) {
@@ -261,16 +276,37 @@ export class Chat {
     this.#deps.events.publish({ type: "chat.message", message: visible(reply) });
   }
 
-  #insert(role: ChatRole, text: string, status: ChatMessage["status"], agentSessionId?: string): ChatMessage {
-    const message: ChatMessage = { id: crypto.randomUUID(), role, text, status, createdAt: Date.now(), toolCalls: [] };
+  #insert(role: ChatRole, text: string, status: ChatMessage["status"], agentSessionId?: string, cardId?: string): ChatMessage {
+    const card = this.#card(cardId ?? null);
+    const message: ChatMessage = { id: crypto.randomUUID(), role, text, status, createdAt: Date.now(), toolCalls: [], ...(card && { card }) };
     this.#deps.db.transaction((tx) => {
       const seq = (tx.select({ last: max(chatMessages.seq) }).from(chatMessages).get()?.last ?? 0) + 1;
+      const { card: _card, ...row } = message;
       tx.insert(chatMessages)
-        .values({ ...message, createdAt: new Date(message.createdAt), agentSessionId: agentSessionId ?? null, seq })
+        .values({ ...row, createdAt: new Date(message.createdAt), agentSessionId: agentSessionId ?? null, cardId: cardId ?? null, seq })
         .run();
     });
     this.#deps.events.publish({ type: "chat.message", message: visible(message) });
     return message;
+  }
+
+  #toMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
+    const card = this.#card(row.cardId);
+    return visible({
+      id: row.id,
+      role: row.role,
+      text: row.text,
+      status: row.status,
+      createdAt: row.createdAt.getTime(),
+      toolCalls: row.toolCalls,
+      ...(card && { card }),
+    });
+  }
+
+  #card(cardId: string | null): ChatMessage["card"] {
+    if (!cardId) return undefined;
+    const prompt = this.#deps.cardPrompt?.(cardId);
+    return prompt === undefined ? undefined : { id: cardId, prompt };
   }
 
   /** A reply still streaming when the app stopped can never finish; mark it and tell the Candidate. */
@@ -285,16 +321,7 @@ export class Chat {
   }
 }
 
-function toMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
-  return visible({
-    id: row.id,
-    role: row.role,
-    text: row.text,
-    status: row.status,
-    createdAt: row.createdAt.getTime(),
-    toolCalls: row.toolCalls,
-  });
-}
+
 
 /** A copy safe to show: hidden state echoes removed. */
 function visible(message: ChatMessage): ChatMessage {

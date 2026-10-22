@@ -1,30 +1,21 @@
-import crypto from "node:crypto";
-import { count, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   chatNodeId,
   type CanvasNode,
   type CanvasSnapshot,
   type ChatNode,
-  type DemoNoteNode,
   type LayoutUpdate,
   type NodeLayout,
   type NodeLayoutEntry,
 } from "@prepare-to-interview/shared";
 import type { Database } from "../db/database.ts";
-import { canvasLayout, demoNotes } from "../db/schema.ts";
+import { canvasLayout } from "../db/schema.ts";
 import type { EventBus } from "../events.ts";
 
-export interface DemoNoteInput {
-  title: string;
-  body: string;
-}
-
-const columns = 4;
-const cellWidth = 280;
-const cellHeight = 180;
-
-/** Until the Candidate moves it, the Chat sits left of the first grid cell. */
+/** Until the Candidate moves it, the Chat sits left of the first placed node. */
 const defaultChatLayout: NodeLayout = { position: { x: -460, y: 0 }, collapsed: false };
+/** Horizontal gap between placed nodes. */
+const placementGap = 80;
 
 /** A layout update named a node the Canvas does not have. */
 export class UnknownNodeError extends Error {
@@ -36,48 +27,72 @@ export class UnknownNodeError extends Error {
   }
 }
 
+/** Domain records the Canvas shows, such as Practice sets; each source owns its node ids. */
+export type NodeSource = () => CanvasNode[];
+
 type LayoutRow = typeof canvasLayout.$inferSelect;
 
-/** What the Canvas shows, assembled from domain records and their stored layout. */
+/**
+ * What the Canvas shows: the Chat plus nodes from domain sources, each with its stored layout.
+ * The layout store holds only positions and collapsed state, apart from domain data.
+ */
 export class Canvas {
   readonly #db: Database;
   readonly #events: EventBus;
+  readonly #sources: NodeSource[] = [];
 
   constructor(db: Database, events: EventBus) {
     this.#db = db;
     this.#events = events;
   }
 
-  snapshot(): CanvasSnapshot {
-    const rows = this.#db
-      .select()
-      .from(demoNotes)
-      .innerJoin(canvasLayout, eq(canvasLayout.nodeId, demoNotes.id))
-      .orderBy(demoNotes.createdAt, demoNotes.id)
-      .all();
-    const chatRow = this.#db.select().from(canvasLayout).where(eq(canvasLayout.nodeId, chatNodeId)).get();
-    return {
-      nodes: [toChatNode(chatRow), ...rows.map((row) => toNoteNode(row.demo_notes, row.canvas_layout))],
-    };
+  /** Adds domain nodes to every snapshot; call once per source at startup. */
+  addSource(source: NodeSource): void {
+    this.#sources.push(source);
   }
 
-  /** Stores a demo note, places it on the next free grid cell, and notifies live clients. */
-  placeDemoNote(input: DemoNoteInput): CanvasNode {
-    const node = this.#db.transaction((tx) => {
-      const placed = tx.select({ placed: count() }).from(demoNotes).get()?.placed ?? 0;
-      const note = { id: crypto.randomUUID(), title: input.title, body: input.body, createdAt: new Date() };
-      const layout = {
-        nodeId: note.id,
-        x: (placed % columns) * cellWidth,
-        y: Math.floor(placed / columns) * cellHeight,
-        collapsed: false,
-      };
-      tx.insert(demoNotes).values(note).run();
-      tx.insert(canvasLayout).values(layout).run();
-      return toNoteNode(note, layout);
-    });
+  snapshot(): CanvasSnapshot {
+    const chatRow = this.#db.select().from(canvasLayout).where(eq(canvasLayout.nodeId, chatNodeId)).get();
+    return { nodes: [toChatNode(chatRow), ...this.#sources.flatMap((source) => source())] };
+  }
+
+  /** The stored layout of each given node that has one. */
+  layouts(nodeIds: string[]): Map<string, NodeLayout> {
+    if (!nodeIds.length) return new Map();
+    const rows = this.#db.select().from(canvasLayout).where(inArray(canvasLayout.nodeId, nodeIds)).all();
+    return new Map(rows.map((row) => [row.nodeId, toLayout(row)]));
+  }
+
+  /**
+   * Gives a new node a place right of every placed node, `width` being the caller's estimate of
+   * the rightmost node's width. Returns the stored layout.
+   */
+  place(nodeId: string, estimatedWidth: number): NodeLayout {
+    const rows = this.#db.select().from(canvasLayout).all().filter((r) => r.nodeId !== chatNodeId);
+    const rightmost = rows.reduce<LayoutRow | undefined>((best, r) => (!best || r.x > best.x ? r : best), undefined);
+    const layout: NodeLayout = {
+      position: { x: rightmost ? rightmost.x + estimatedWidth + placementGap : 0, y: rightmost ? rightmost.y : 0 },
+      collapsed: false,
+    };
+    const row = { nodeId, x: layout.position.x, y: layout.position.y, collapsed: false };
+    this.#db.insert(canvasLayout).values(row).onConflictDoUpdate({ target: canvasLayout.nodeId, set: row }).run();
+    return layout;
+  }
+
+  /** Tells live clients about a node that just appeared. */
+  added(node: CanvasNode): void {
     this.#events.publish({ type: "canvas.node_added", node });
-    return node;
+  }
+
+  /** Tells live clients about a node whose content changed. */
+  updated(node: CanvasNode): void {
+    this.#events.publish({ type: "canvas.node_updated", node });
+  }
+
+  /** Drops a node's layout and tells live clients it is gone. */
+  removed(nodeId: string): void {
+    this.#db.delete(canvasLayout).where(eq(canvasLayout.nodeId, nodeId)).run();
+    this.#events.publish({ type: "canvas.node_removed", nodeId });
   }
 
   /**
@@ -124,8 +139,4 @@ function toLayout(row: LayoutRow): NodeLayout {
 
 function toChatNode(row: LayoutRow | undefined): ChatNode {
   return { id: chatNodeId, kind: "chat", ...(row ? toLayout(row) : defaultChatLayout), data: {} };
-}
-
-function toNoteNode(note: typeof demoNotes.$inferSelect, layout: LayoutRow): DemoNoteNode {
-  return { id: note.id, kind: "demo_note", ...toLayout(layout), data: { title: note.title, body: note.body } };
 }

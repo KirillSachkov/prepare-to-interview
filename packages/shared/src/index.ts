@@ -21,6 +21,10 @@ export const apiPaths = {
   topics: "/api/topics",
   /** POST an {@link AddQuestionRequest}: the Candidate's own Question. */
   questions: "/api/questions",
+  /** POST a {@link PracticeRequest}: asks the Interviewer for a Practice set or a Quiz in the Chat. */
+  practiceRequest: "/api/practice/request",
+  /** GET a {@link ProgressResponse}: Mastery and Due per Topic of the active Preparation target. */
+  progress: "/api/progress",
   mcp: "/mcp",
 } as const;
 
@@ -42,13 +46,98 @@ interface CanvasNodeBase extends NodeLayout {
   id: string;
 }
 
-/** Placeholder node kind proving the stack end to end; real Cards arrive with the domain tickets. */
-export interface DemoNoteNode extends CanvasNodeBase {
-  kind: "demo_note";
-  data: {
-    title: string;
-    body: string;
-  };
+/** REST paths of Card actions. */
+export const cardPaths = {
+  /** PUT a {@link CardDraft}; the draft survives reload. */
+  draft: (cardId: string) => `/api/cards/${cardId}/draft`,
+  /** POST: reveals the next rung of the Hint ladder. */
+  hint: (cardId: string) => `/api/cards/${cardId}/hint`,
+  /** POST: records the Card as Skipped. */
+  skip: (cardId: string) => `/api/cards/${cardId}/skip`,
+  /** POST: grades this Card now (training mode, a Quiz, or after a failed grading). */
+  check: (cardId: string) => `/api/cards/${cardId}/check`,
+  /** POST: opens a graded or skipped Card for another answer. */
+  retry: (cardId: string) => `/api/cards/${cardId}/retry`,
+  /** POST: brings the Card into the Chat with its question, answer, and grade. */
+  discuss: (cardId: string) => `/api/cards/${cardId}/discuss`,
+} as const;
+
+export const practiceSetPaths = {
+  /** POST: submits the whole Practice set. */
+  submit: (setId: string) => `/api/practice-sets/${setId}/submit`,
+  /** PUT a {@link RevealRequest}: grades after each answer or only after submitting. */
+  reveal: (setId: string) => `/api/practice-sets/${setId}/reveal`,
+} as const;
+
+export type QuestionType = "open" | "single_choice" | "multiple_choice";
+export type CardStatus = "open" | "grading" | "graded" | "skipped" | "failed";
+export type PracticeSetKind = "practice" | "quiz";
+/** When grades appear: after the whole set is submitted, or right after each answer (training). */
+export type RevealMode = "after_submit" | "each_answer";
+export type PracticeSetStatus = "active" | "grading" | "graded";
+
+export interface CardDraft {
+  text: string;
+  /** Chosen option indexes of a test Card. */
+  choices: number[];
+}
+
+/** The latest Attempt shown on a Card. */
+export interface CardAttempt {
+  status: "graded" | "skipped";
+  /** 0–3 after the Hint ladder cap; `null` when Skipped. */
+  score: number | null;
+  maxScore: number;
+  /** Evidence quoted from the answer. */
+  quote: string | null;
+  /** What was right. */
+  strengths: string | null;
+  gap: string | null;
+  /** Correct option indexes of a test Card. */
+  correct: number[] | null;
+}
+
+/** One Question placed on the Canvas, as the Candidate sees it. */
+export interface CardView {
+  id: string;
+  questionId: string;
+  topic: string;
+  type: QuestionType;
+  prompt: string;
+  /** Option texts of a test Card. */
+  options: string[] | null;
+  status: CardStatus;
+  /** The draft while open; the submitted answer afterwards. */
+  draft: CardDraft;
+  /** Hint ladder rungs revealed so far, in order. */
+  hints: string[];
+  /** Rungs the Card offers in total. */
+  hintRungs: number;
+  /** Highest score the next Attempt can get after the hints used. */
+  maxScore: number;
+  attempt: CardAttempt | null;
+  /** Revealed only once an Attempt exists. */
+  referenceAnswer: string | null;
+  /** Why grading failed, in Russian; the Candidate can check again. */
+  error: string | null;
+}
+
+export interface PracticeSetView {
+  title: string;
+  kind: PracticeSetKind;
+  reveal: RevealMode;
+  status: PracticeSetStatus;
+  /** Milliseconds since the epoch when a timed Quiz submits itself. */
+  deadline: number | null;
+  cards: CardView[];
+  /** Totals once graded: points out of the maximum of the graded Cards, and Skipped Cards. */
+  result: { score: number; max: number; skipped: number } | null;
+}
+
+/** A Practice set with its Cards; collapsed, it shows as a small result Card. */
+export interface PracticeSetNode extends CanvasNodeBase {
+  kind: "practice_set";
+  data: PracticeSetView;
 }
 
 /** The single Chat node; the Canvas always has it, whether or not the Candidate shows it. */
@@ -60,7 +149,7 @@ export interface ChatNode extends CanvasNodeBase {
   data: Record<string, never>;
 }
 
-export type CanvasNode = DemoNoteNode | ChatNode;
+export type CanvasNode = PracticeSetNode | ChatNode;
 export type CanvasNodeKind = CanvasNode["kind"];
 
 export interface CanvasSnapshot {
@@ -143,6 +232,8 @@ export interface ChatMessage {
   /** Milliseconds since the epoch. */
   createdAt: number;
   toolCalls: ChatToolCall[];
+  /** The Card the message is about, such as after «Обсудить». */
+  card?: { id: string; prompt: string };
 }
 
 export interface ChatSnapshot {
@@ -157,6 +248,9 @@ export interface ChatSendRequest {
 
 export type ServerEvent =
   | { type: "canvas.node_added"; node: CanvasNode }
+  /** A node's content changed, such as a Card graded; its layout stays as it is. */
+  | { type: "canvas.node_updated"; node: CanvasNode }
+  | { type: "canvas.node_removed"; nodeId: string }
   | { type: "canvas.layout_changed"; layouts: NodeLayoutEntry[] }
   /** A message was added or changed (status, final text, tool calls). */
   | { type: "chat.message"; message: ChatMessage }
@@ -179,9 +273,9 @@ export interface TargetSummary {
   interviewDate: string | null;
   /** Calendar days until the interview date; `null` without a date or once it has passed. */
   daysLeft: number | null;
-  /** Overall readiness 0–100; `null` until Attempts exist. */
+  /** Overall readiness 0–100; `null` while no Topic of the target has Mastery. */
   readiness: number | null;
-  /** Questions Due for repetition; `null` until scheduling exists. */
+  /** Questions of the target's Topics Due for repetition today. */
   due: number | null;
 }
 
@@ -209,6 +303,38 @@ export interface AddQuestionResponse {
   topic: string;
 }
 
+// Practice and progress
+
+export interface PracticeRequest {
+  /** «Подборка на сегодня», «Подборка по теме…», or «Квиз». */
+  kind: "today" | "topic" | "quiz";
+  /** Topic name for `topic`. */
+  topic?: string;
+}
+
+export interface RevealRequest {
+  reveal: RevealMode;
+}
+
+export interface TopicProgress {
+  name: string;
+  /** Group Topic this one nests under. */
+  group: string | null;
+  priority: "high" | "medium" | "low";
+  /** 0–1; `null` for a never-touched Topic. */
+  mastery: number | null;
+  /** Active Questions in the Topic and its subtopics. */
+  questions: number;
+  due: number;
+}
+
+export interface ProgressResponse {
+  targetId: string | null;
+  readiness: number | null;
+  due: number;
+  topics: TopicProgress[];
+}
+
 // Hidden state
 
 /** URI of the hidden state block sent first in every turn (ADR-0002). */
@@ -217,21 +343,27 @@ export const sessionStateUri = "app://session-state";
 /** URI of the hidden block carrying an Activity's skill, sent once per Agent session. */
 export const skillUri = (activity: string) => `app://skill/${activity}`;
 
+/** URI of a hidden block of app facts for one turn, such as a graded Practice set or a discussed Card. */
+export const appContextUri = (path: string) => `app://context/${path}`;
+
 const hiddenStatePatterns = [
   /<context ref="app:\/\/[^"]*">[\s\S]*?<\/context>/g,
   /<session_state>[\s\S]*?<\/session_state>/g,
   /\[app:\/\/[^\]\s]*\]/g,
   /<activity_skill[^>]*>[\s\S]*?<\/activity_skill>/g,
-  /app:\/\/(?:session-state|skill\/[\w-]+)/g,
+  /<app_context[^>]*>[\s\S]*?<\/app_context>/g,
+  /app:\/\/(?:session-state|skill\/[\w-]+|context\/[\w./-]+)/g,
 ];
 
 /**
  * Removes echoes of the hidden state block from Chat text. Agents replay it on `session/load` in
  * their own formats: `<context ref="app://…">…</context>`, `[app://…]`, or bare
- * `<session_state>…</session_state>` and `<activity_skill>…</activity_skill>`.
+ * `<session_state>…</session_state>`, `<activity_skill>…</activity_skill>`, and `<app_context>…</app_context>`.
  */
 export function stripHiddenState(text: string): string {
-  if (!text.includes("app://") && !text.includes("<session_state>") && !text.includes("<activity_skill")) return text;
+  if (!text.includes("app://") && !text.includes("<session_state>") && !text.includes("<activity_skill") && !text.includes("<app_context")) {
+    return text;
+  }
   let result = text;
   for (const pattern of hiddenStatePatterns) result = result.replace(pattern, "");
   return result === text ? text : result.trimStart();

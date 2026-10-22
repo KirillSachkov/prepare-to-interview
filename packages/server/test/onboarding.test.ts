@@ -150,8 +150,9 @@ describe("onboarding Activity", () => {
         grade: "Middle",
         interviewDate: "2026-11-05",
         daysLeft: 14,
-        readiness: null,
-        due: null,
+        // The calibration probe seeds Mastery: Go concurrency 2/3 at high priority, SQL untouched at medium.
+        readiness: 40,
+        due: 0,
       },
     ]);
 

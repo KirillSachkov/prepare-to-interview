@@ -1,14 +1,6 @@
 import { integer, primaryKey, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { ChatToolCall } from "@prepare-to-interview/shared";
 
-/** Placeholder domain record for the walking skeleton; real domain tables replace it. */
-export const demoNotes = sqliteTable("demo_notes", {
-  id: text("id").primaryKey(),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-});
-
 /**
  * Canvas layout is stored apart from domain data: one row per node the Canvas has placed or the
  * Candidate has moved. Rows hold no domain meaning and can be rebuilt by placing nodes again.
@@ -26,10 +18,15 @@ export const settings = sqliteTable("settings", {
   value: text("value", { mode: "json" }).notNull(),
 });
 
+export const agentSessionRoles = ["chat", "grader"] as const;
+export type AgentSessionRole = (typeof agentSessionRoles)[number];
+
 /** Internal conversations with the coding agent; the Candidate never manages them. */
 export const agentSessions = sqliteTable("agent_sessions", {
   id: text("id").primaryKey(),
   agent: text("agent").notNull(),
+  /** `chat` sessions carry the Chat; `grader` sessions grade one open answer and end. */
+  role: text("role", { enum: agentSessionRoles }).notNull().default("chat"),
   /** The agent's own session id, used to load the session after a restart. */
   externalId: text("external_id").notNull(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
@@ -48,6 +45,8 @@ export const chatMessages = sqliteTable("chat_messages", {
   status: text("status", { enum: ["streaming", "complete", "cancelled", "failed"] }).notNull(),
   toolCalls: text("tool_calls", { mode: "json" }).$type<ChatToolCall[]>().notNull(),
   agentSessionId: text("agent_session_id").references(() => agentSessions.id),
+  /** The Card a message is about, such as the Candidate's «Обсудить» on a Card. */
+  cardId: text("card_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /** Insertion order; createdAt can tie within a millisecond. */
   seq: integer("seq").notNull(),
@@ -144,6 +143,11 @@ export interface TestOption {
 export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
 export type QuestionType = (typeof questionTypes)[number];
 
+export type RubricAnchors = Partial<Record<"0" | "1" | "2" | "3", string>>;
+
+export const questionOrigins = ["candidate", "research", "interviewer"] as const;
+export type QuestionOrigin = (typeof questionOrigins)[number];
+
 export const questions = sqliteTable("questions", {
   id: text("id").primaryKey(),
   topicId: text("topic_id")
@@ -154,10 +158,15 @@ export const questions = sqliteTable("questions", {
   options: text("options", { mode: "json" }).$type<TestOption[]>(),
   referenceAnswer: text("reference_answer"),
   verified: integer("verified", { mode: "boolean" }).notNull().default(false),
-  rubricAnchors: text("rubric_anchors", { mode: "json" }).$type<Partial<Record<"0" | "1" | "2" | "3", string>>>(),
+  rubricAnchors: text("rubric_anchors", { mode: "json" }).$type<RubricAnchors>(),
+  /** The Hint ladder: rung n reveals hint n; each rung lowers the maximum score by one. */
+  hints: text("hints", { mode: "json" }).$type<string[]>(),
   status: text("status", { enum: ["proposed", "active", "rejected"] }).notNull(),
-  /** Who brought the Question into the bank. */
-  origin: text("origin", { enum: ["candidate", "research"] }).notNull(),
+  /**
+   * Who brought the Question into the bank: the Candidate, Research (enters as Proposed), or the
+   * Interviewer composing a Practice set the Candidate asked for (enters as active).
+   */
+  origin: text("origin", { enum: questionOrigins }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
@@ -184,4 +193,103 @@ export const activities = sqliteTable("activities", {
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   endedAt: integer("ended_at", { mode: "timestamp_ms" }),
   summary: text("summary"),
+});
+
+// Practice (ADR-0004): Practice sets of Cards, Attempts, and Leitner scheduling.
+
+export const practiceSetKinds = ["practice", "quiz"] as const;
+export type PracticeSetKind = (typeof practiceSetKinds)[number];
+/** When grades appear: after the whole set is submitted, or right after each answer (training). */
+export const revealModes = ["after_submit", "each_answer"] as const;
+export type RevealMode = (typeof revealModes)[number];
+export const practiceSetStatuses = ["active", "grading", "graded", "abandoned"] as const;
+export type PracticeSetStatus = (typeof practiceSetStatuses)[number];
+
+/** A group of Cards the Candidate answers in any order and submits together. */
+export const practiceSets = sqliteTable("practice_sets", {
+  id: text("id").primaryKey(),
+  activityId: text("activity_id")
+    .notNull()
+    .references(() => activities.id),
+  targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  kind: text("kind", { enum: practiceSetKinds }).notNull(),
+  reveal: text("reveal", { enum: revealModes }).notNull(),
+  status: text("status", { enum: practiceSetStatuses }).notNull(),
+  /** A timed Quiz submits itself at this instant. */
+  deadline: integer("deadline", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  submittedAt: integer("submitted_at", { mode: "timestamp_ms" }),
+  gradedAt: integer("graded_at", { mode: "timestamp_ms" }),
+  /** When the Interviewer received the grading result in a turn's hidden context. */
+  reportedAt: integer("reported_at", { mode: "timestamp_ms" }),
+});
+
+export const cardStatuses = ["open", "grading", "graded", "skipped", "failed"] as const;
+export type CardStatus = (typeof cardStatuses)[number];
+
+/** One Question placed on the Canvas inside a Practice set; holds the Candidate's draft. */
+export const cards = sqliteTable("cards", {
+  id: text("id").primaryKey(),
+  setId: text("set_id")
+    .notNull()
+    .references(() => practiceSets.id, { onDelete: "cascade" }),
+  questionId: text("question_id")
+    .notNull()
+    .references(() => questions.id),
+  position: integer("position").notNull(),
+  status: text("status", { enum: cardStatuses }).notNull(),
+  draftText: text("draft_text").notNull().default(""),
+  /** Chosen option indexes of a test Card. */
+  draftChoices: text("draft_choices", { mode: "json" }).$type<number[]>().notNull(),
+  hintsUsed: integer("hints_used").notNull().default(0),
+  /** The answer is a retry after feedback: recorded, but it moves neither Leitner boxes nor Mastery. */
+  retry: integer("retry", { mode: "boolean" }).notNull().default(false),
+  /** Latest Attempt on this Card. */
+  attemptId: text("attempt_id"),
+  /** Why grading failed, in the Candidate's language. */
+  error: text("error"),
+});
+
+export const attemptModes = ["training", "mock"] as const;
+export type AttemptMode = (typeof attemptModes)[number];
+
+/** One answer to one Question: a score with its evidence, or Skipped. */
+export const attempts = sqliteTable("attempts", {
+  id: text("id").primaryKey(),
+  questionId: text("question_id")
+    .notNull()
+    .references(() => questions.id),
+  cardId: text("card_id"),
+  activityId: text("activity_id").references(() => activities.id),
+  mode: text("mode", { enum: attemptModes }).notNull(),
+  status: text("status", { enum: ["graded", "skipped"] }).notNull(),
+  /** 0–3 after the Hint ladder cap; null when Skipped. */
+  score: integer("score"),
+  /** The Grader's or the app's score before the cap. */
+  rawScore: integer("raw_score"),
+  maxScore: integer("max_score").notNull(),
+  hintRung: integer("hint_rung").notNull(),
+  answer: text("answer"),
+  choices: text("choices", { mode: "json" }).$type<number[]>(),
+  /** Evidence quoted from the answer: no quote, no rating. */
+  quote: text("quote"),
+  /** What was right. */
+  strengths: text("strengths"),
+  /** The single most important gap. */
+  gap: text("gap"),
+  gradedBy: text("graded_by", { enum: ["app", "grader"] }),
+  retry: integer("retry", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+/** Leitner box and Due date per Question; a Question without a row was never practised. */
+export const questionSchedule = sqliteTable("question_schedule", {
+  questionId: text("question_id")
+    .primaryKey()
+    .references(() => questions.id),
+  box: integer("box").notNull(),
+  /** Local calendar date `YYYY-MM-DD` from which the Question is Due. */
+  dueOn: text("due_on").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

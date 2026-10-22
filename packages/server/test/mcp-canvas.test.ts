@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { apiPaths, type CanvasSnapshot, type ServerEvent } from "@prepare-to-interview/shared";
 import type { RunningServer } from "../src/server.ts";
-import { authHeaders, demoNotes, makeTempDirs, startTestServer } from "./helpers.ts";
+import { authHeaders, makeTempDirs, practiceSets, quizArgs, startTestServer } from "./helpers.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -51,78 +51,68 @@ function openEvents(server: RunningServer, headers: Record<string, string> = aut
   return { opened, next };
 }
 
-describe("demo MCP tool to live Canvas", () => {
-  it("lists the tool with strict input and output schemas", async () => {
+describe("MCP tools to live Canvas", () => {
+  it("lists the tools with strict input and output schemas", async () => {
     const client = await connectMcp(await start());
     const { tools } = await client.listTools();
-    const tool = tools.find((t) => t.name === "demo_place_note");
+    const tool = tools.find((t) => t.name === "place_practice_set");
     expect(tool?.inputSchema).toMatchObject({
       type: "object",
-      required: ["title"],
+      required: ["title", "cards"],
       additionalProperties: false,
     });
     expect(tool?.outputSchema).toMatchObject({ type: "object", additionalProperties: false });
   });
 
-  it("places a note that appears live on the Canvas and in the Canvas snapshot", async () => {
+  it("places a Practice set that appears live on the Canvas and in the Canvas snapshot", async () => {
     const server = await start();
     const events = openEvents(server);
     await events.opened;
     const client = await connectMcp(server);
 
-    const result = await client.callTool({
-      name: "demo_place_note",
-      arguments: { title: "PostgreSQL indexes", body: "B-tree by default" },
-    });
+    const result = await client.callTool({ name: "place_practice_set", arguments: quizArgs("Indexes") });
 
     expect(result.isError).toBeFalsy();
-    const nodeId = (result.structuredContent as { node_id: string }).node_id;
-    expect(result.content).toEqual([
-      { type: "text", text: `Placed note "PostgreSQL indexes" on the Canvas (node ${nodeId}).` },
-    ]);
-    const expectedNode = {
-      id: nodeId,
-      kind: "demo_note",
-      position: { x: 0, y: 0 },
-      collapsed: false,
-      data: { title: "PostgreSQL indexes", body: "B-tree by default" },
-    };
-    expect(await events.next()).toEqual({ type: "canvas.node_added", node: expectedNode });
-    expect(demoNotes(await canvas(server))).toEqual([expectedNode]);
+    const setId = (result.structuredContent as { practice_set_id: string }).practice_set_id;
+    expect((result.content as { text: string }[])[0]?.text).toMatch(
+      new RegExp(`^Placed a Quiz with 1 Cards on the Canvas \\(${setId}\\)\\.`),
+    );
+    const event = await events.next();
+    expect(event).toMatchObject({
+      type: "canvas.node_added",
+      node: { id: setId, kind: "practice_set", position: { x: 0, y: 0 }, collapsed: false, data: { title: "Indexes", kind: "quiz" } },
+    });
+    expect(practiceSets(await canvas(server))).toEqual([(event as { node: unknown }).node]);
   });
 
-  it("keeps placed notes after a restart", async () => {
+  it("keeps placed Practice sets and their layout after a restart", async () => {
     const dirs = makeTempDirs();
     cleanups.push(dirs.cleanup);
     const first = await start(dirs);
     const client = await connectMcp(first);
-    await client.callTool({ name: "demo_place_note", arguments: { title: "One" } });
-    await client.callTool({ name: "demo_place_note", arguments: { title: "Two" } });
+    await client.callTool({ name: "place_practice_set", arguments: quizArgs("One") });
     await client.close();
     await first.close();
 
     const second = await start(dirs);
-    expect(demoNotes(await canvas(second)).map((n) => [n.data.title, n.data.body, n.position])).toEqual([
-      ["One", "", { x: 0, y: 0 }],
-      ["Two", "", { x: 280, y: 0 }],
-    ]);
+    expect(practiceSets(await canvas(second)).map((n) => [n.data.title, n.position])).toEqual([["One", { x: 0, y: 0 }]]);
   });
 
   it.each([
-    ["a missing title", {}, "title"],
-    ["a blank title", { title: "   " }, "title"],
-    ["an unknown field", { title: "ok", score: 3 }, "score"],
-    ["a wrong type", { title: "ok", body: 42 }, "body"],
+    ["a missing title", { cards: (quizArgs("x").cards as unknown[]) }, "title"],
+    ["no cards", { title: "Empty", cards: [] }, "cards"],
+    ["an unknown field", { ...quizArgs("x"), score: 3 }, "score"],
+    ["a wrong type", { ...quizArgs("x"), kind: 42 }, "kind"],
   ])("rejects %s with isError and a fix hint, placing nothing", async (_case, args, field) => {
     const server = await start();
     const client = await connectMcp(server);
-    const result = await client.callTool({ name: "demo_place_note", arguments: args });
+    const result = await client.callTool({ name: "place_practice_set", arguments: args });
     expect(result.isError).toBe(true);
     const text = (result.content as { text: string }[])[0]?.text ?? "";
-    expect(text).toContain("Invalid input for demo_place_note");
+    expect(text).toContain("Invalid input for place_practice_set");
     expect(text).toContain(field);
     expect(text).toMatch(/\nFix: Pass \{"title"/);
-    expect(demoNotes(await canvas(server))).toEqual([]);
+    expect(practiceSets(await canvas(server))).toEqual([]);
   });
 
   it("answers an unknown tool with isError listing the available tools", async () => {
@@ -130,7 +120,7 @@ describe("demo MCP tool to live Canvas", () => {
     const result = await client.callTool({ name: "record_attempt", arguments: {} });
     expect(result.isError).toBe(true);
     expect((result.content as { text: string }[])[0]?.text).toMatch(
-      /^Unknown tool "record_attempt"\.\nFix: Call one of: get_profile, .*demo_place_note\.$/,
+      /^Unknown tool "record_attempt"\.\nFix: Call one of: get_profile, .*place_practice_set\.$/,
     );
   });
 
@@ -141,7 +131,7 @@ describe("demo MCP tool to live Canvas", () => {
     const events = openEvents(server, { Cookie: cookie, Origin: `http://127.0.0.1:${server.port}` });
     await events.opened;
     const client = await connectMcp(server);
-    await client.callTool({ name: "demo_place_note", arguments: { title: "Via cookie" } });
+    await client.callTool({ name: "place_practice_set", arguments: quizArgs("Via cookie") });
     expect(await events.next()).toMatchObject({ type: "canvas.node_added", node: { data: { title: "Via cookie" } } });
   });
 

@@ -149,16 +149,16 @@ describe("Chat with the Interviewer", () => {
       claude: [
         [
           say("Placing it."),
-          { callTool: { server: "interview", tool: "demo_place_note", arguments: { title: "Indexes" } } },
+          { callTool: { server: "interview", tool: "get_progress", arguments: {} } },
         ],
       ],
     });
     await chooseAgent(server, "claude");
-    await send(server, "Put a note");
+    await send(server, "How am I doing?");
     const { messages } = await settled(server);
 
     expect(messages[1]?.toolCalls).toEqual([
-      expect.objectContaining({ server: "interview", tool: "demo_place_note", status: "completed" }),
+      expect.objectContaining({ server: "interview", tool: "get_progress", status: "completed" }),
     ]);
   });
 

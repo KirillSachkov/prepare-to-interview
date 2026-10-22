@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { apiPaths, type CanvasSnapshot } from "@prepare-to-interview/shared";
 import type { AgentEvent, SessionConfig } from "../src/agent/driver.ts";
 import { FakeDriver } from "../src/agent/fake-driver.ts";
-import { authHeaders, demoNotes, startTestServer } from "./helpers.ts";
+import { authHeaders, practiceSets, quizArgs, startTestServer } from "./helpers.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -26,14 +26,14 @@ describe("fake agent driver", () => {
     const driver = new FakeDriver([
       [
         { event: { type: "message_chunk", text: "Let me put that on your Canvas." } },
-        { callTool: { server: "interview", tool: "demo_place_note", arguments: { title: "Transactions" } } },
+        { callTool: { server: "interview", tool: "place_practice_set", arguments: quizArgs("Transactions") } },
         { event: { type: "usage", used: 1200, size: 200_000 } },
       ],
     ]);
     const session = await driver.startSession(config);
     const events: AgentEvent[] = [];
 
-    const result = await session.prompt({ text: "Add a note", hiddenState: { activity: "demo" } }, (e) =>
+    const result = await session.prompt({ text: "Quiz me", hiddenState: { activity: "demo" } }, (e) =>
       events.push(e),
     );
 
@@ -41,39 +41,40 @@ describe("fake agent driver", () => {
     const snapshot = (await (
       await fetch(new URL(apiPaths.canvas, server.url), { headers: authHeaders(server) })
     ).json()) as CanvasSnapshot;
-    expect(demoNotes(snapshot).map((n) => n.data.title)).toEqual(["Transactions"]);
-    const nodeId = demoNotes(snapshot)[0]?.id;
+    expect(practiceSets(snapshot).map((n) => n.data.title)).toEqual(["Transactions"]);
+    const placed = practiceSets(snapshot)[0];
 
     expect(events).toEqual([
       { type: "message_chunk", text: "Let me put that on your Canvas." },
       {
         type: "tool_call",
         toolCallId: "fake-call-1",
-        title: "mcp__interview__demo_place_note",
+        title: "mcp__interview__place_practice_set",
         status: "pending",
         server: "interview",
-        tool: "demo_place_note",
-        rawInput: { title: "Transactions" },
+        tool: "place_practice_set",
+        rawInput: quizArgs("Transactions"),
       },
       {
         type: "tool_call_update",
         toolCallId: "fake-call-1",
         status: "completed",
-        rawOutput: { node_id: nodeId, title: "Transactions" },
+        rawOutput: (events[2] as { rawOutput?: unknown }).rawOutput,
       },
       { type: "usage", used: 1200, size: 200_000 },
     ]);
-    expect(driver.prompts).toEqual([{ text: "Add a note", hiddenState: { activity: "demo" } }]);
+    expect((events[2] as { rawOutput?: unknown }).rawOutput).toMatchObject({ practice_set_id: placed?.id, kind: "quiz" });
+    expect(driver.prompts).toEqual([{ text: "Quiz me", hiddenState: { activity: "demo" } }]);
   });
 
   it("reports a rejected tool call as failed with the server's fix hint", async () => {
     const { config } = await setup();
     const driver = new FakeDriver([
-      [{ callTool: { server: "interview", tool: "demo_place_note", arguments: { title: "" } } }],
+      [{ callTool: { server: "interview", tool: "place_practice_set", arguments: { title: "", cards: [] } } }],
     ]);
     const session = await driver.startSession(config);
     const events: AgentEvent[] = [];
-    await session.prompt({ text: "Add an empty note" }, (e) => events.push(e));
+    await session.prompt({ text: "Place an empty set" }, (e) => events.push(e));
 
     const update = events.find((e) => e.type === "tool_call_update");
     expect(update).toMatchObject({ status: "failed" });

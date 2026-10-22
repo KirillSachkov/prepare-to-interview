@@ -23,24 +23,32 @@ export type FakeStep =
 export type FakeTurn = FakeStep[];
 
 /**
+ * Answers prompts no scripted turn is meant for, such as hidden Grader sessions; returning
+ * `undefined` leaves the prompt to the scripted turns.
+ */
+export type FakeResponder = (config: SessionConfig, input: TurnInput) => FakeTurn | undefined;
+
+/**
  * Test double for a coding agent: each prompt replays the next scripted turn. Tool calls go to the
  * app's MCP server over HTTP, as a real agent's would, and stream as tool_call and tool_call_update.
  */
 export class FakeDriver implements AgentDriver {
   readonly agent = "fake";
-  /** Every turn input received, in order, across sessions. */
+  /** Every turn input the scripted turns answered, in order, across sessions; responder turns are left out. */
   readonly prompts: TurnInput[] = [];
   /** Session starts and loads, in order. */
   readonly sessions: { action: "start" | "load"; id: string; config: SessionConfig }[] = [];
   readonly #turns: FakeTurn[];
+  readonly #respond: FakeResponder | undefined;
   /** Errors to throw from the next `startSession` or `loadSession` calls. */
   readonly sessionFailures: Error[] = [];
   #sessionCount = 0;
   #toolCalls = 0;
   disposed = false;
 
-  constructor(turns: FakeTurn[]) {
+  constructor(turns: FakeTurn[], options: { respond?: FakeResponder } = {}) {
     this.#turns = [...turns];
+    this.#respond = options.respond;
   }
 
   /** Adds turns for later prompts, for example after a restart with a new driver. */
@@ -91,8 +99,9 @@ export class FakeDriver implements AgentDriver {
     onEvent: (event: AgentEvent) => void,
     untilCancelled: () => Promise<void>,
   ): Promise<TurnResult> {
-    this.prompts.push(input);
-    const turn = this.#turns.shift();
+    const responded = this.#respond?.(config, input);
+    if (!responded) this.prompts.push(input);
+    const turn = responded ?? this.#turns.shift();
     if (!turn) throw new Error(`FakeDriver: no scripted turn left for prompt "${input.text}"`);
     for (const step of turn) {
       if ("event" in step) onEvent(step.event);

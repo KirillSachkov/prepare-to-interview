@@ -1,19 +1,22 @@
 import { z } from "zod";
-import type { Canvas } from "../canvas/canvas.ts";
-import { questionTypes, topicPriorities } from "../db/schema.ts";
+import { practiceSetKinds, questionTypes, revealModes, topicPriorities } from "../db/schema.ts";
+import { maxHintRungs } from "../domain/arithmetic.ts";
 import {
+  DomainError,
   languages,
   markets,
   type CandidateProfile,
   type Domain,
+  type PracticeQuestion,
   type TargetDetail,
 } from "../domain/domain.ts";
+import type { Practice } from "../domain/practice.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
 import { defineTool, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
-  canvas: Canvas;
   domain: Domain;
+  practice: Practice;
   interviewer: Interviewer;
 }
 
@@ -91,8 +94,61 @@ function profileToOutput(p: CandidateProfile): z.input<typeof profileFields> {
   };
 }
 
+const rubricAnchorsInput = z
+  .strictObject({ "0": shortText(500).optional(), "1": shortText(500).optional(), "2": shortText(500).optional(), "3": shortText(500).optional() })
+  .describe("What each Rubric score means for this Question.");
+
+const practiceCardInput = z.union([
+  z
+    .strictObject({
+      question_id: z.string().min(1).describe("A Question from get_progress."),
+      reference_answer: shortText(10_000).optional().describe("Fills a missing Reference answer; a stored one is kept."),
+      rubric_anchors: rubricAnchorsInput.optional(),
+      hints: z.array(shortText(500)).max(maxHintRungs).optional().describe("Fills missing Hint ladder rungs, mildest first."),
+    })
+    .describe("A Question from the bank."),
+  z
+    .strictObject({
+      topic: topicName,
+      prompt: shortText(4000).describe("The Question as the Candidate should see it."),
+      type: z.enum(questionTypes),
+      options: z
+        .array(z.strictObject({ text: shortText(500), correct: z.boolean() }))
+        .min(2)
+        .max(10)
+        .optional()
+        .describe("Test options; only for single_choice and multiple_choice."),
+      reference_answer: shortText(10_000).optional().describe("Required for open Questions: what a good answer contains."),
+      rubric_anchors: rubricAnchorsInput.optional(),
+      hints: z.array(shortText(500)).max(maxHintRungs).optional().describe("Hint ladder rungs, mildest first."),
+    })
+    .describe("A new Question you compose; it enters the bank."),
+]);
+
+function toPracticeQuestion(card: z.output<typeof practiceCardInput>): PracticeQuestion {
+  const fill = {
+    ...(card.reference_answer !== undefined && { referenceAnswer: card.reference_answer }),
+    ...(card.rubric_anchors && { rubricAnchors: card.rubric_anchors }),
+    ...(card.hints && { hints: card.hints }),
+  };
+  if ("question_id" in card) return { questionId: card.question_id, ...fill };
+  return { topic: card.topic, prompt: card.prompt, type: card.type, ...(card.options && { options: card.options }), ...fill };
+}
+
+const percent = (mastery: number | null) => (mastery === null ? null : Math.round(mastery * 100));
+
+const queuedOutput = z.strictObject({
+  question_id: z.string(),
+  topic: z.string(),
+  type: z.enum(questionTypes),
+  prompt: z.string(),
+  box: z.number().nullable(),
+  due_on: z.string().nullable(),
+  mastery: z.number().nullable(),
+});
+
 /** The app's MCP tool set; every change goes through the domain core, which validates it. */
-export function createTools({ canvas, domain, interviewer }: ToolDeps): ToolDefinition[] {
+export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_profile",
@@ -288,10 +344,10 @@ export function createTools({ canvas, domain, interviewer }: ToolDeps): ToolDefi
       name: "start_activity",
       title: "Start an Activity",
       description:
-        "Start an Activity when the Candidate asks for it in the Chat, such as onboarding for a new Preparation target. Returns the Activity's skill: follow it from now on. A running Activity of the same kind continues.",
-      input: z.strictObject({ kind: z.enum(["onboarding"]) }),
+        "Start an Activity when the Candidate asks for it in the Chat: onboarding for a new Preparation target, or practice_set when they ask to practise (a Practice set or a Quiz). Returns the Activity's skill: follow it from now on. A running Activity of the same kind continues.",
+      input: z.strictObject({ kind: z.enum(["onboarding", "practice_set"]) }),
       output: z.strictObject({ activity_id: z.string(), kind: z.string(), started: z.boolean(), skill: z.string().nullable() }),
-      fixHint: 'Pass {"kind": "onboarding"}.',
+      fixHint: 'Pass {"kind": "onboarding"} or {"kind": "practice_set"}.',
       run: (input) => {
         const { activity, started } = domain.startActivity(input.kind);
         return {
@@ -324,23 +380,116 @@ export function createTools({ canvas, domain, interviewer }: ToolDeps): ToolDefi
     }),
 
     defineTool({
-      name: "demo_place_note",
-      title: "Place a demo note",
-      description: "Place a short note on the Candidate's Canvas. Demo tool proving the MCP-to-Canvas path.",
+      name: "get_progress",
+      title: "Read progress and the practice queue",
+      description:
+        "Read the active Preparation target's progress, computed by the app: readiness, Mastery and Due count per Topic, the Questions Due for repetition, and active Questions never practised. Pass topic to look inside one Topic. Use it to choose Questions for a Practice set; never compute these numbers yourself.",
       input: z.strictObject({
-        title: z.string().trim().min(1).max(120).describe("Short heading shown on the note, 1-120 characters."),
-        body: z.string().trim().max(2000).default("").describe("Optional note text, up to 2000 characters."),
+        topic: topicName.optional().describe("Only this Topic and its subtopics."),
+        limit: z.number().int().min(1).max(50).default(20).describe("Most Questions per list."),
       }),
       output: z.strictObject({
-        node_id: z.string(),
-        title: z.string(),
+        target_id: z.string().nullable(),
+        readiness: z.number().nullable().describe("0-100; null while no Topic has Mastery."),
+        due: z.number(),
+        topics: z.array(
+          z.strictObject({
+            name: z.string(),
+            priority: z.enum(topicPriorities),
+            mastery: z.number().nullable().describe("0-100; null for a never-touched Topic."),
+            questions: z.number(),
+            due: z.number(),
+          }),
+        ),
+        due_questions: z.array(queuedOutput),
+        new_questions: z.array(queuedOutput),
       }),
-      fixHint: 'Pass {"title": "<1-120 characters>", "body": "<optional, up to 2000 characters>"} and no other fields.',
+      fixHint: 'Pass {} or {"topic": "<Topic name from get_profile>", "limit": 20}.',
       run: (input) => {
-        const node = canvas.placeDemoNote(input);
-        return { node_id: node.id, title: node.data.title };
+        const targetId = domain.activeTargetId();
+        if (!targetId) return { target_id: null, readiness: null, due: 0, topics: [], due_questions: [], new_questions: [] };
+        const topicId = input.topic === undefined ? undefined : domain.findTopic(input.topic);
+        if (topicId === null) {
+          throw new DomainError(`The bank has no Topic "${input.topic ?? ""}".`, "Use a Topic name from get_progress or get_profile, or omit topic.", { kind: "not_found" });
+        }
+        const progress = domain.progress.forTarget(targetId);
+        const queue = domain.progress.queue(targetId, { ...(topicId && { topicId }), limit: input.limit });
+        const queued = (q: (typeof queue.due)[number]) => ({
+          question_id: q.questionId,
+          topic: q.topic,
+          type: q.type,
+          prompt: q.prompt,
+          box: q.box,
+          due_on: q.dueOn,
+          mastery: percent(q.mastery),
+        });
+        return {
+          target_id: targetId,
+          readiness: progress.readiness,
+          due: progress.due,
+          topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: percent(t.mastery), questions: t.questions, due: t.due })),
+          due_questions: queue.due.map(queued),
+          new_questions: queue.fresh.map(queued),
+        };
       },
-      summarize: (output) => `Placed note "${output.title}" on the Canvas (node ${output.node_id}).`,
+      summarize: (o) => {
+        if (!o.target_id) return "No active Preparation target yet.";
+        const topics = o.topics.map((t) => `${t.name} [${t.priority}]: ${t.mastery === null ? "not touched" : `${t.mastery}%`}, ${t.questions} Questions, ${t.due} Due`);
+        const list = (title: string, qs: typeof o.due_questions) =>
+          qs.length ? `${title}:\n${qs.map((q) => `- ${q.question_id} (${q.topic}, ${q.type}): ${q.prompt}`).join("\n")}` : `${title}: none.`;
+        return [
+          `Readiness: ${o.readiness === null ? "not yet known" : `${o.readiness}%`}; ${o.due} Questions Due.`,
+          `Topics:\n${topics.map((t) => `- ${t}`).join("\n") || "- none"}`,
+          list("Due Questions", o.due_questions),
+          list("Never practised", o.new_questions),
+        ].join("\n");
+      },
+    }),
+
+    defineTool({
+      name: "place_practice_set",
+      title: "Place a Practice set or a Quiz on the Canvas",
+      description:
+        "Place Cards for the Candidate to answer: a Practice set (open and test Questions, answered in any order and submitted together) or a Quiz (only single_choice and multiple_choice Questions, checked instantly). Take Questions from get_progress by question_id, or compose new ones with topic, prompt, type, and, for open Questions, reference_answer. Add 1-2 hints per open Question for the Hint ladder. The app grades: tests itself, open answers through the Grader. Starts the practice_set Activity when none runs.",
+      input: z.strictObject({
+        title: shortText(120).describe('Short title shown on the set, such as "Подборка на сегодня" or "RAG: 3 вопроса".'),
+        kind: z.enum(practiceSetKinds).default("practice"),
+        reveal: z
+          .enum(revealModes)
+          .optional()
+          .describe('"after_submit" (default) shows grades after the set is submitted; "each_answer" grades each Card right away (training). A Quiz always uses each_answer.'),
+        time_limit_minutes: z.number().int().min(1).max(120).nullish().describe("Only for a timed Quiz."),
+        replace_unfinished: z.boolean().optional().describe("Drop the Candidate's unsubmitted Practice set; only after they agreed."),
+        cards: z.array(practiceCardInput).min(1).max(12),
+      }),
+      output: z.strictObject({
+        practice_set_id: z.string(),
+        kind: z.enum(practiceSetKinds),
+        cards: z.array(z.strictObject({ card_id: z.string(), question_id: z.string(), topic: z.string(), type: z.enum(questionTypes) })),
+        activity_id: z.string(),
+        skill: z.string().nullable(),
+      }),
+      fixHint:
+        'Pass {"title": "...", "kind": "practice", "cards": [{"question_id": "<from get_progress>"}, {"topic": "...", "prompt": "...", "type": "open", "reference_answer": "...", "hints": ["..."]}, {"topic": "...", "prompt": "...", "type": "single_choice", "options": [{"text": "...", "correct": true}, {"text": "...", "correct": false}]}]}.',
+      run: (input) => {
+        const { node, activity } = practice.placeSet({
+          title: input.title,
+          kind: input.kind,
+          ...(input.reveal && { reveal: input.reveal }),
+          ...(input.time_limit_minutes && { timeLimitMinutes: input.time_limit_minutes }),
+          ...(input.replace_unfinished !== undefined && { replaceUnfinished: input.replace_unfinished }),
+          questions: input.cards.map(toPracticeQuestion),
+        });
+        return {
+          practice_set_id: node.id,
+          kind: node.data.kind,
+          cards: node.data.cards.map((c) => ({ card_id: c.id, question_id: c.questionId, topic: c.topic, type: c.type })),
+          activity_id: activity.id,
+          skill: activity.started ? (interviewer.skillForStartedActivity({ id: activity.id, kind: "practice_set" }) ?? null) : null,
+        };
+      },
+      summarize: (o) =>
+        `Placed ${o.kind === "quiz" ? "a Quiz" : "a Practice set"} with ${o.cards.length} Cards on the Canvas (${o.practice_set_id}). The Candidate answers on the Cards; the app grades and tells you the results.${o.skill ? ` Follow this skill:\n\n${o.skill}` : ""}`,
     }),
   ];
 }

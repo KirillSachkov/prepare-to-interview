@@ -15,11 +15,14 @@ import { loopbackHost } from "./config.ts";
 import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
 import { Domain } from "./domain/domain.ts";
+import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
 import { createTools } from "./mcp/tools.ts";
-import { Interviewer } from "./interviewer/interviewer.ts";
+import { Grader } from "./interviewer/grader.ts";
+import { defaultContentDir, Interviewer } from "./interviewer/interviewer.ts";
+import { PracticeRunner } from "./interviewer/practice-runner.ts";
 import { Settings } from "./settings/settings.ts";
 
 export const appVersion = "0.0.0";
@@ -58,17 +61,29 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const settings = new Settings(db, events);
   const now = options.now ?? (() => new Date());
   const domain = new Domain(db, events, now);
+  const practice = new Practice({ db, domain, canvas, now });
+  const contentDir = options.interviewerDir ?? defaultContentDir;
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
   const mcpServers: McpServerConfig[] = [];
   const interviewer = new Interviewer({
-    ...(options.interviewerDir && { contentDir: options.interviewerDir }),
+    contentDir,
     domain,
+    practice,
     mcpServers: () => mcpServers,
     now,
   });
   const drivers = cachedDrivers(options.drivers ?? acpDrivers(dataDir.root));
-  const chat = new Chat({ db, events, settings, interviewer, drivers: drivers.get });
+  const chat = new Chat({
+    db,
+    events,
+    settings,
+    interviewer,
+    drivers: drivers.get,
+    cardPrompt: (cardId) => practice.cardPrompt(cardId),
+  });
+  const grader = new Grader({ db, settings, drivers: drivers.get, contentDir });
+  const runner = new PracticeRunner({ practice, grader, chat });
 
   const app = createApp({
     token: dataDir.token,
@@ -76,10 +91,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     canvas,
     chat,
     domain,
+    practice,
+    runner,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
-    mcp: createMcpHandler(createTools({ canvas, domain, interviewer }), appVersion),
+    mcp: createMcpHandler(createTools({ domain, practice, interviewer }), appVersion),
     clientDir: options.clientDir ?? defaultClientDir,
   });
 
@@ -111,6 +128,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     mcpServer,
     close: async () => {
       await chat.close();
+      await runner.close();
       await drivers.dispose();
       for (const client of wss.clients) client.terminate();
       wss.close();

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { CanvasSnapshot, DemoNoteNode } from "@prepare-to-interview/shared";
+import type { CanvasSnapshot, PracticeSetNode } from "@prepare-to-interview/shared";
 import { startServer, type RunningServer, type ServerOptions } from "../src/server.ts";
 
 export const testIndexHtml = "<!doctype html><title>canvas test</title><div id=root></div>";
@@ -31,9 +31,28 @@ export async function startTestServer(
   return { server, dirs };
 }
 
-/** The demo notes in a snapshot, without the Chat node every Canvas has. */
-export function demoNotes(snapshot: CanvasSnapshot): DemoNoteNode[] {
-  return snapshot.nodes.filter((n) => n.kind === "demo_note");
+/** The Practice sets in a snapshot, without the Chat node every Canvas has. */
+export function practiceSets(snapshot: CanvasSnapshot): PracticeSetNode[] {
+  return snapshot.nodes.filter((n) => n.kind === "practice_set");
+}
+
+/** A Quiz of one test Card, the smallest node an agent can place on the Canvas. */
+export function quizArgs(title: string): Record<string, unknown> {
+  return {
+    title,
+    kind: "quiz",
+    cards: [
+      {
+        topic: "SQL",
+        prompt: `${title}: which index type does PostgreSQL create by default?`,
+        type: "single_choice",
+        options: [
+          { text: "B-tree", correct: true },
+          { text: "Hash", correct: false },
+        ],
+      },
+    ],
+  };
 }
 
 export function authHeaders(server: RunningServer): Record<string, string> {

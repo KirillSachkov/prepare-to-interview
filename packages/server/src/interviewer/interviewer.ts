@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { skillUri } from "@prepare-to-interview/shared";
+import { appContextUri, skillUri } from "@prepare-to-interview/shared";
 import type { AllowedBuiltin, McpServerConfig, SessionConfig, TurnInput } from "../agent/driver.ts";
 import type { ActivityKind } from "../db/schema.ts";
 import type { Domain } from "../domain/domain.ts";
+import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
 
 export const defaultContentDir = fileURLToPath(new URL("../../../../interviewer", import.meta.url));
 
@@ -16,21 +17,29 @@ export interface HiddenState {
   language: string;
   /** The running Activity; its skill arrives as a separate hidden block once per Agent session. */
   activity: { id: string; kind: ActivityKind } | null;
-  active_target: { id: string; name: string; days_left: number | null } | null;
+  active_target: { id: string; name: string; days_left: number | null; due_questions: number | null; readiness: number | null } | null;
   has_profile: boolean;
+  /** The Candidate's unsubmitted Practice set on the Canvas. */
+  unfinished_practice_set: { id: string; title: string; answered: number; cards: number } | null;
 }
 
 export interface InterviewerOptions {
   /** Directory with `persona.md`, `skills/<activity>/SKILL.md`, and `references/`. */
   contentDir?: string;
   domain: Domain;
+  practice: Practice;
   /** The app's MCP servers; read lazily because the URL is known only after the server listens. */
   mcpServers: () => McpServerConfig[];
   now?: () => Date;
 }
 
 /** Activities that have a skill file in the product directory. */
-const skilledActivities: readonly ActivityKind[] = ["onboarding"];
+const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set"];
+
+/** Shared references appended to an Activity's skill. */
+const skillReferences: Partial<Record<ActivityKind, string[]>> = {
+  practice_set: ["references/rubric.md", "references/modes.md"],
+};
 
 /**
  * Seam between the Chat and Interviewer orchestration: decides what each Agent session gets
@@ -41,6 +50,7 @@ export class Interviewer {
   readonly #persona: string;
   readonly #skills: ReadonlyMap<ActivityKind, string>;
   readonly #domain: Domain;
+  readonly #practice: Practice;
   readonly #mcpServers: () => McpServerConfig[];
   readonly #now: () => Date;
   /** `<agent session>:<activity>` pairs whose skill the agent already has. */
@@ -53,17 +63,19 @@ export class Interviewer {
     this.#persona = fs.readFileSync(`${dir}/persona.md`, "utf8");
     this.#skills = new Map(skilledActivities.map((kind) => [kind, loadSkill(dir, kind)]));
     this.#domain = options.domain;
+    this.#practice = options.practice;
     this.#mcpServers = options.mcpServers;
     this.#now = options.now ?? (() => new Date());
   }
 
   /**
    * What the agent receives for one Candidate message in the given Agent session: the hidden
-   * state and, until the session has the running Activity's skill, that skill. A Candidate
-   * without any Preparation target starts in onboarding unless they skipped it before. Call
-   * `sent` once the agent took the turn, so a failed turn sends the skill again.
+   * state; until the session has the running Activity's skill, that skill; results of Practice
+   * sets graded since the last turn; and the Card the message is about. A Candidate without any
+   * Preparation target starts in onboarding unless they skipped it before. Call `sent` once the
+   * agent took the turn, so a failed turn sends the skill and the results again.
    */
-  turnInput(text: string, agentSessionId: string): { input: TurnInput; sent: () => void } {
+  turnInput(text: string, agentSessionId: string, options: { cardId?: string } = {}): { input: TurnInput; sent: () => void } {
     this.#lastSession = agentSessionId;
     if (!this.#domain.targets().targets.length && !this.#domain.onboardingStarted() && !this.#domain.currentActivity()) {
       this.#domain.startActivity("onboarding");
@@ -72,10 +84,20 @@ export class Interviewer {
     const activity = hiddenState.activity;
     const skill = activity && this.#skills.get(activity.kind);
     const key = activity && `${agentSessionId}:${activity.id}`;
-    if (!skill || !key || this.#delivered.has(key)) return { input: { text, hiddenState }, sent: () => undefined };
+    const context: NonNullable<TurnInput["context"]> = [];
+    const sendSkill = skill && key && !this.#delivered.has(key);
+    if (sendSkill) context.push({ uri: skillUri(activity.kind), text: skill });
+    const results = this.#practice.unreported();
+    for (const result of results) context.push({ uri: appContextUri(`practice-set/${result.setId}`), text: describeResult(result) });
+    if (options.cardId) {
+      context.push({ uri: appContextUri(`card/${options.cardId}`), text: describeCard(this.#practice.cardContext(options.cardId)) });
+    }
     return {
-      input: { text, hiddenState, context: [{ uri: skillUri(activity.kind), text: skill }] },
-      sent: () => this.#delivered.add(key),
+      input: { text, hiddenState, ...(context.length && { context }) },
+      sent: () => {
+        if (sendSkill) this.#delivered.add(key);
+        this.#practice.markReported(results.map((r) => r.setId));
+      },
     };
   }
 
@@ -105,16 +127,81 @@ export class Interviewer {
       now: localIso(this.#now()),
       language: activeTarget?.language ?? "ru",
       activity: activity && { id: activity.id, kind: activity.kind },
-      active_target: activeTarget && { id: activeTarget.id, name: activeTarget.name, days_left: activeTarget.daysLeft },
+      active_target: activeTarget && {
+        id: activeTarget.id,
+        name: activeTarget.name,
+        days_left: activeTarget.daysLeft,
+        due_questions: activeTarget.due,
+        readiness: activeTarget.readiness,
+      },
       has_profile: profile !== null,
+      unfinished_practice_set: unfinished(this.#practice.unfinished()),
     };
   }
 }
 
-/** A skill as the agent reads it: the skill file wrapped so the Chat can strip its echoes. */
+/** A skill as the agent reads it: the skill file and its references, wrapped so the Chat can strip its echoes. */
 function loadSkill(dir: string, kind: ActivityKind): string {
-  const body = fs.readFileSync(`${dir}/skills/${kind}/SKILL.md`, "utf8");
-  return `<activity_skill name="${kind}">\n${body.trim()}\n</activity_skill>`;
+  const parts = [`${dir}/skills/${kind}/SKILL.md`, ...(skillReferences[kind] ?? []).map((ref) => `${dir}/${ref}`)];
+  const body = parts.map((file) => fs.readFileSync(file, "utf8").trim()).join("\n\n");
+  return `<activity_skill name="${kind}">\n${body}\n</activity_skill>`;
+}
+
+function unfinished(set: ReturnType<Practice["unfinished"]>): HiddenState["unfinished_practice_set"] {
+  return set && { id: set.setId, title: set.title, answered: set.answered, cards: set.cards };
+}
+
+/** The grading result of a Practice set, as hidden context for the Interviewer's next turn. */
+function describeResult(result: SetResult): string {
+  return appContext("practice_result", {
+    practice_set_id: result.setId,
+    title: result.title,
+    kind: result.kind,
+    score: result.score,
+    max: result.max,
+    skipped: result.skipped,
+    cards: result.cards.map((c) => ({
+      topic: c.topic,
+      question: c.prompt,
+      status: c.status,
+      score: c.score,
+      max_score: c.maxScore,
+      hints_used: c.hintsUsed,
+      gap: c.gap,
+    })),
+    note: "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask; do not regrade.",
+  });
+}
+
+/** A Card the Candidate brought into the Chat with «Обсудить». */
+function describeCard(card: CardContext): string {
+  return appContext("card", {
+    card_id: card.cardId,
+    practice_set: card.setTitle,
+    topic: card.topic,
+    type: card.type,
+    question: card.question,
+    ...(card.options && { options: card.options, chosen: card.choices }),
+    answer: card.type === "open" ? card.answer : undefined,
+    status: card.status,
+    hints_used: card.hintsUsed,
+    attempt: card.attempt && {
+      status: card.attempt.status,
+      score: card.attempt.score,
+      max_score: card.attempt.maxScore,
+      quote: card.attempt.quote,
+      right: card.attempt.strengths,
+      gap: card.attempt.gap,
+    },
+    reference_answer: card.referenceAnswer,
+    note: card.attempt
+      ? "The Candidate wants to discuss this Card."
+      : "The Candidate wants to discuss this Card before answering: help without giving away the answer.",
+  });
+}
+
+function appContext(name: string, data: unknown): string {
+  return `<app_context name="${name}">\n${JSON.stringify(data, null, 2)}\n</app_context>`;
 }
 
 function localIso(date: Date): string {

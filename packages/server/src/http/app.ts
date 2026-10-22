@@ -2,19 +2,25 @@ import fs from "node:fs";
 import path from "node:path";
 import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   apiPaths,
+  cardPaths,
+  practiceSetPaths,
   type AddQuestionResponse,
   type AgentsResponse,
+  type ProgressResponse,
   type ServerEvent,
   type TopicsResponse,
 } from "@prepare-to-interview/shared";
 import type { AgentDetector } from "../agent/detect.ts";
 import { UnknownNodeError, type Canvas } from "../canvas/canvas.ts";
 import { ChatBusyError, type Chat } from "../chat/chat.ts";
+import { revealModes } from "../db/schema.ts";
 import { DomainError, type Domain } from "../domain/domain.ts";
+import type { Practice } from "../domain/practice.ts";
+import type { PracticeRunner } from "../interviewer/practice-runner.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
@@ -26,6 +32,8 @@ export interface AppDeps {
   canvas: Canvas;
   chat: Chat;
   domain: Domain;
+  practice: Practice;
+  runner: PracticeRunner;
   settings: Settings;
   detectAgents: AgentDetector;
   events: EventBus;
@@ -88,12 +96,7 @@ export function createApp(deps: AppDeps): Hono {
   app.post(apiPaths.newTarget, (c) => {
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
     deps.domain.startActivity("onboarding", { newTarget: true });
-    try {
-      return c.json({ message: deps.chat.send(newTargetMessage) }, 202);
-    } catch (error) {
-      if (error instanceof ChatBusyError) return c.json({ error: chatBusyMessage }, 409);
-      throw error;
-    }
+    return sendToChat(() => deps.chat.send(newTargetMessage));
   });
   app.get(apiPaths.topics, (c) => c.json({ topics: deps.domain.topicNames() } satisfies TopicsResponse));
   app.post(apiPaths.questions, async (c) => {
@@ -103,6 +106,47 @@ export function createApp(deps: AppDeps): Hono {
       const question = deps.domain.addQuestion({ ...body.data, origin: "candidate" });
       return c.json({ questionId: question.id, topic: question.topic } satisfies AddQuestionResponse, 201);
     });
+  });
+
+  app.get(apiPaths.progress, (c) => {
+    const targetId = deps.domain.activeTargetId();
+    const progress = targetId ? deps.domain.progress.forTarget(targetId) : { readiness: null, due: 0, topics: [] };
+    return c.json({ targetId, ...progress } satisfies ProgressResponse);
+  });
+  app.post(apiPaths.practiceRequest, async (c) => {
+    const body = practiceRequest.safeParse(await readJson(c.req.raw));
+    if (!body.success) return c.json({ error: "Не указано, какую подборку собрать." }, 400);
+    if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
+    deps.domain.startActivity("practice_set", { targetId: deps.domain.activeTargetId() });
+    return sendToChat(() => deps.chat.send(practiceRequestMessage(body.data)));
+  });
+
+  const card = (path: (id: string) => string) => path(":id");
+  app.put(card(cardPaths.draft), async (c) => {
+    const body = cardDraft.safeParse(await readJson(c.req.raw));
+    if (!body.success) return c.json({ error: "Черновик не сохранён: неверные данные." }, 400);
+    return domainResult(() => {
+      deps.practice.saveDraft(idParam(c), body.data);
+      return c.body(null, 204);
+    });
+  });
+  app.post(card(cardPaths.hint), (c) => domainResult(() => c.json(deps.practice.hint(idParam(c)))));
+  app.post(card(cardPaths.skip), (c) => domainResult(() => c.json(deps.practice.skip(idParam(c)))));
+  app.post(card(cardPaths.retry), (c) => domainResult(() => c.json(deps.practice.retry(idParam(c)))));
+  app.post(card(cardPaths.check), (c) => domainResult(() => c.json(deps.runner.check(idParam(c)), 202)));
+  app.post(card(cardPaths.discuss), (c) => {
+    if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
+    return domainResult(() => {
+      const cardId = idParam(c);
+      deps.practice.cardContext(cardId);
+      return sendToChat(() => deps.chat.send(discussMessage, { cardId }));
+    });
+  });
+  app.post(practiceSetPaths.submit(":id"), (c) => domainResult(() => c.json(deps.runner.submit(idParam(c)), 202)));
+  app.put(practiceSetPaths.reveal(":id"), async (c) => {
+    const body = revealRequest.safeParse(await readJson(c.req.raw));
+    if (!body.success) return c.json({ error: "Не указан режим оценок." }, 400);
+    return domainResult(() => c.json(deps.practice.setReveal(idParam(c), body.data.reveal)));
   });
 
   app.get(apiPaths.agents, (c) =>
@@ -150,10 +194,45 @@ const addQuestionRequest = z.strictObject({
   prompt: z.string().trim().min(1).max(4000),
 });
 
+const practiceRequest = z.strictObject({
+  kind: z.enum(["today", "topic", "quiz"]),
+  topic: z.string().trim().min(1).max(120).optional(),
+}).refine((r) => r.kind !== "topic" || r.topic, { message: "A topic request names the topic." });
+const cardDraft = z.strictObject({
+  text: z.string().max(20_000).optional(),
+  choices: z.array(z.number().int().min(0).max(20)).max(20).optional(),
+});
+const revealRequest = z.strictObject({ reveal: z.enum(revealModes) });
+
+/** What the Candidate says in the Chat when they ask for practice from the toolbar or a menu. */
+export function practiceRequestMessage(request: z.output<typeof practiceRequest>): string {
+  switch (request.kind) {
+    case "today":
+      return "Хочу подборку на сегодня.";
+    case "topic":
+      return `Хочу подборку по теме «${request.topic ?? ""}».`;
+    case "quiz":
+      return "Хочу квиз.";
+  }
+}
+
+/** What the Candidate says in the Chat when they press «Обсудить» on a Card. */
+export const discussMessage = "Обсудим эту карточку.";
+
 /** What the Candidate says in the Chat when they press «Новая цель». */
 export const newTargetMessage = "Хочу добавить новую цель подготовки.";
 
 const chatBusyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
+
+/** Answers 202 with the Candidate's Chat message, or 409 while the Interviewer is replying. */
+function sendToChat(send: () => unknown): Response {
+  try {
+    return Response.json({ message: send() }, { status: 202 });
+  } catch (error) {
+    if (error instanceof ChatBusyError) return Response.json({ error: chatBusyMessage }, { status: 409 });
+    throw error;
+  }
+}
 
 /** Answers a refused domain change with its Russian text: 404 for an unknown record, 400 otherwise. */
 function domainResult(respond: () => Response): Response {
@@ -164,6 +243,11 @@ function domainResult(respond: () => Response): Response {
     const message = error.candidateMessage ?? "приложение отклонило запрос.";
     return Response.json({ error: message }, { status: error.kind === "not_found" ? 404 : 400 });
   }
+}
+
+/** The `:id` of a Card or Practice set route. */
+function idParam(c: Context): string {
+  return c.req.param("id") ?? "";
 }
 
 async function readJson(request: Request): Promise<unknown> {

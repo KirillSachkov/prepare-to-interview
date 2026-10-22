@@ -14,12 +14,16 @@ import {
   type ActivityKind,
   type ActivityStatus,
   type Mission,
+  type QuestionOrigin,
   type QuestionType,
+  type RubricAnchors,
   type TestOption,
   type TopicPriority,
   type Vacancy,
 } from "../db/schema.ts";
 import type { EventBus } from "../events.ts";
+import { maxHintRungs } from "./arithmetic.ts";
+import { Progress, type Tx } from "./progress.ts";
 
 /**
  * A domain rule refused the request. The message says what is wrong and `fixHint` how to retry;
@@ -125,8 +129,21 @@ export interface QuestionInput {
   type?: QuestionType;
   options?: TestOption[];
   referenceAnswer?: string | null;
-  origin: "candidate" | "research";
+  rubricAnchors?: RubricAnchors | null;
+  /** Hint ladder rungs, mildest first. */
+  hints?: string[] | null;
+  origin: QuestionOrigin;
 }
+
+/** Fields a Practice set may fill on a bank Question that lacks them; stored values are kept. */
+export interface QuestionFill {
+  referenceAnswer?: string | null;
+  rubricAnchors?: RubricAnchors | null;
+  hints?: string[] | null;
+}
+
+/** A Question for a Practice set: one from the bank by id, or a new one the Interviewer composed. */
+export type PracticeQuestion = ({ questionId: string } & QuestionFill) | (Omit<QuestionInput, "origin"> & { questionId?: undefined });
 
 export interface Overview {
   profile: CandidateProfile | null;
@@ -149,17 +166,19 @@ export class Domain {
   readonly #db: Database;
   readonly #events: EventBus;
   readonly #now: () => Date;
+  readonly progress: Progress;
 
   constructor(db: Database, events: EventBus, now: () => Date = () => new Date()) {
     this.#db = db;
     this.#events = events;
     this.#now = now;
+    this.progress = new Progress(db, () => localDate(now()));
   }
 
   // Reads
 
   overview(): Overview {
-    const activeId = this.#activeTargetId();
+    const activeId = this.activeTargetId();
     return {
       profile: this.profile(),
       activeTarget: activeId ? this.#targetDetail(activeId) : null,
@@ -191,7 +210,7 @@ export class Domain {
 
   targets(): TargetsResponse {
     const rows = this.#db.select().from(preparationTargets).orderBy(asc(preparationTargets.createdAt), asc(sql`rowid`)).all();
-    return { activeId: this.#activeTargetId(), targets: rows.map((row) => this.#summary(row)) };
+    return { activeId: this.activeTargetId(), targets: rows.map((row) => this.#summary(row)) };
   }
 
   /** Topic names of the Question bank, alphabetically. */
@@ -301,7 +320,7 @@ export class Domain {
       if (input.activate ?? !input.targetId) setActiveTarget(tx, id);
       return id;
     });
-    this.#publishTargets();
+    this.publishTargets();
     return present(this.#targetDetail(id));
   }
 
@@ -309,12 +328,12 @@ export class Domain {
     const exists = this.#db.select({ id: preparationTargets.id }).from(preparationTargets).where(eq(preparationTargets.id, targetId)).get();
     if (!exists) throw unknownTarget(targetId, this.targets());
     setActiveTarget(this.#db, targetId);
-    return this.#publishTargets();
+    return this.publishTargets();
   }
 
   /** Records a choice the Candidate and the Interviewer agreed on; it belongs to the active target by default. */
   recordDecision(input: { decision: string; reason?: string | null; targetId?: string | null }): Decision {
-    const targetId = input.targetId === undefined ? this.#activeTargetId() : input.targetId;
+    const targetId = input.targetId === undefined ? this.activeTargetId() : input.targetId;
     if (targetId && !this.#db.select().from(preparationTargets).where(eq(preparationTargets.id, targetId)).get()) {
       throw unknownTarget(targetId, this.targets());
     }
@@ -333,16 +352,11 @@ export class Domain {
   addQuestion(input: QuestionInput): { id: string; topic: string; status: "proposed" | "active" } {
     const type = input.type ?? "open";
     checkOptions(type, input.options);
-    const status = input.origin === "candidate" ? "active" : "proposed";
+    checkHints(input.hints);
+    const status = input.origin === "research" ? "proposed" : "active";
     const result = this.#db.transaction((tx) => {
       const topicId = this.#findOrCreateTopic(tx, input.topic);
-      const promptKey = normalize(input.prompt);
-      const duplicate = tx
-        .select({ id: questions.id, prompt: questions.prompt })
-        .from(questions)
-        .where(eq(questions.topicId, topicId))
-        .all()
-        .find((q) => normalize(q.prompt) === promptKey);
+      const duplicate = this.#duplicate(tx, topicId, input.prompt);
       if (duplicate) {
         const topic = tx.select({ name: topics.name }).from(topics).where(eq(topics.id, topicId)).get()?.name ?? input.topic;
         throw new DomainError(
@@ -351,25 +365,56 @@ export class Domain {
           { candidateMessage: `такой вопрос уже есть в банке, тема «${topic}».` },
         );
       }
-      const id = crypto.randomUUID();
-      tx.insert(questions)
-        .values({
-          id,
-          topicId,
-          type,
-          prompt: input.prompt,
-          options: type === "open" ? null : (input.options ?? null),
-          referenceAnswer: input.referenceAnswer ?? null,
-          verified: false,
-          rubricAnchors: null,
-          status,
-          origin: input.origin,
-          createdAt: this.#now(),
-        })
-        .run();
-      return { id, topicId };
+      return { id: this.#insertQuestion(tx, topicId, { ...input, type }, status), topicId };
     });
     return { id: result.id, topic: present(this.#topicNames([result.topicId]).get(result.topicId)), status };
+  }
+
+  /**
+   * Resolves the Questions of a Practice set in one transaction: bank Questions by id (filling
+   * missing fields), and composed ones by Topic and prompt, reusing a bank Question with the same
+   * prompt. Composed Questions enter the bank as active: the Candidate asked for the practice.
+   * Returns the Question ids in order.
+   */
+  practiceQuestions(items: PracticeQuestion[]): string[] {
+    for (const item of items) {
+      checkHints(item.hints);
+      if (item.questionId === undefined) checkOptions(item.type ?? "open", item.options);
+    }
+    return this.#db.transaction((tx) =>
+      items.map((item) => {
+        if (item.questionId !== undefined) {
+          const row = tx.select().from(questions).where(eq(questions.id, item.questionId)).get();
+          if (!row || row.status === "rejected") {
+            throw new DomainError(`No active Question with id "${item.questionId}".`, "Use question ids from get_progress, or compose the Question with topic, prompt, and type.", { kind: "not_found" });
+          }
+          this.#fill(tx, row, item);
+          return row.id;
+        }
+        const topicId = this.#findOrCreateTopic(tx, item.topic);
+        const duplicate = this.#duplicate(tx, topicId, item.prompt);
+        if (duplicate) {
+          this.#fill(tx, duplicate, item);
+          if (duplicate.status !== "active") tx.update(questions).set({ status: "active" }).where(eq(questions.id, duplicate.id)).run();
+          return duplicate.id;
+        }
+        return this.#insertQuestion(tx, topicId, { ...item, type: item.type ?? "open", origin: "interviewer" }, "active");
+      }),
+    );
+  }
+
+  /** Completes the Activity if it is still running, such as a Practice set once graded. */
+  completeActivity(activityId: string, summary: string): void {
+    this.#db
+      .update(activities)
+      .set({ status: "completed", summary, endedAt: this.#now() })
+      .where(and(eq(activities.id, activityId), eq(activities.status, "active")))
+      .run();
+  }
+
+  /** The Topic id for a name in the bank, if the bank has it. */
+  findTopic(name: string): string | null {
+    return this.#db.select({ id: topics.id }).from(topics).where(eq(topics.key, normalize(name))).get()?.id ?? null;
   }
 
   /**
@@ -431,12 +476,14 @@ export class Domain {
 
   // Internals
 
-  #activeTargetId(): string | null {
+  /** The Preparation target the Candidate works on, if any. */
+  activeTargetId(): string | null {
     const row = this.#db.select().from(settings).where(eq(settings.key, activeTargetKey)).get();
     return typeof row?.value === "string" ? row.value : null;
   }
 
-  #publishTargets(): TargetsResponse {
+  /** Tells live clients the targets changed, such as readiness or Due after an Attempt. */
+  publishTargets(): TargetsResponse {
     const targets = this.targets();
     this.#events.publish({ type: "targets.changed", targets });
     return targets;
@@ -450,9 +497,13 @@ export class Domain {
       grade: row.grade,
       interviewDate: row.interviewDate,
       daysLeft: row.interviewDate ? daysBetween(localDate(this.#now()), row.interviewDate) : null,
-      readiness: null,
-      due: null,
+      ...this.#progressSummary(row.id),
     };
+  }
+
+  #progressSummary(targetId: string): Pick<TargetSummary, "readiness" | "due"> {
+    const { readiness, due } = this.progress.forTarget(targetId);
+    return { readiness, due };
   }
 
   #targetDetail(id: string): TargetDetail | null {
@@ -495,6 +546,42 @@ export class Domain {
     }
     tx.delete(targetTopics).where(eq(targetTopics.targetId, targetId)).run();
     if (rows.length) tx.insert(targetTopics).values(rows).run();
+  }
+
+  #duplicate(tx: Tx, topicId: string, prompt: string): typeof questions.$inferSelect | undefined {
+    const key = normalize(prompt);
+    return tx.select().from(questions).where(eq(questions.topicId, topicId)).all().find((q) => normalize(q.prompt) === key);
+  }
+
+  #insertQuestion(tx: Tx, topicId: string, input: QuestionInput & { type: QuestionType }, status: "proposed" | "active"): string {
+    const id = crypto.randomUUID();
+    tx.insert(questions)
+      .values({
+        id,
+        topicId,
+        type: input.type,
+        prompt: input.prompt,
+        options: input.type === "open" ? null : (input.options ?? null),
+        referenceAnswer: input.referenceAnswer ?? null,
+        verified: false,
+        rubricAnchors: input.rubricAnchors ?? null,
+        hints: input.hints?.length ? input.hints : null,
+        status,
+        origin: input.origin,
+        createdAt: this.#now(),
+      })
+      .run();
+    return id;
+  }
+
+  /** Fills a bank Question's missing Reference answer, Rubric anchors, or hints; stored values win. */
+  #fill(tx: Tx, row: typeof questions.$inferSelect, fill: QuestionFill): void {
+    const set = {
+      ...(!row.referenceAnswer && fill.referenceAnswer && { referenceAnswer: fill.referenceAnswer }),
+      ...(!row.rubricAnchors && fill.rubricAnchors && { rubricAnchors: fill.rubricAnchors }),
+      ...(!row.hints?.length && fill.hints?.length && { hints: fill.hints }),
+    };
+    if (Object.keys(set).length) tx.update(questions).set(set).where(eq(questions.id, row.id)).run();
   }
 
   /** Topics are shared across Preparation targets: the same name always means the same Topic. */
@@ -543,8 +630,6 @@ function present<T>(value: T | null | undefined): T {
   return value;
 }
 
-type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
-
 function setActiveTarget(db: Database | Tx, targetId: string): void {
   db.insert(settings)
     .values({ key: activeTargetKey, value: targetId })
@@ -580,13 +665,19 @@ function checkOptions(type: QuestionType, options: TestOption[] | undefined): vo
   }
 }
 
+function checkHints(hints: string[] | null | undefined): void {
+  if (hints && hints.length > maxHintRungs) {
+    throw new DomainError(`A Question has at most ${maxHintRungs} hint rungs.`, `Pass up to ${maxHintRungs} hints, mildest first.`);
+  }
+}
+
 /** Text with surrounding space trimmed and inner runs of space collapsed. */
 function tidy(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
 
 /** The comparison key for Topic names and Question prompts: tidy and case-insensitive. */
-function normalize(text: string): string {
+export function normalize(text: string): string {
   return tidy(text).toLocaleLowerCase();
 }
 

@@ -10,7 +10,7 @@ import {
   type ServerEvent,
 } from "@prepare-to-interview/shared";
 import type { RunningServer } from "../src/server.ts";
-import { authHeaders, makeTempDirs, startTestServer } from "./helpers.ts";
+import { authHeaders, makeTempDirs, quizArgs, startTestServer } from "./helpers.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -36,13 +36,13 @@ function putLayout(server: RunningServer, body: unknown, headers = authHeaders(s
   });
 }
 
-async function placeNote(server: RunningServer, title: string): Promise<string> {
+async function placeSet(server: RunningServer, title: string): Promise<string> {
   const client = new Client({ name: "test-agent", version: "0.0.0" });
   const headers = Object.fromEntries(server.mcpServer.headers.map((h) => [h.name, h.value]));
   await client.connect(new StreamableHTTPClientTransport(new URL(server.mcpServer.url), { requestInit: { headers } }));
-  const result = await client.callTool({ name: "demo_place_note", arguments: { title } });
+  const result = await client.callTool({ name: "place_practice_set", arguments: quizArgs(title) });
   await client.close();
-  return (result.structuredContent as { node_id: string }).node_id;
+  return (result.structuredContent as { practice_set_id: string }).practice_set_id;
 }
 
 function nodeLayout(snapshot: CanvasSnapshot, id: string) {
@@ -62,7 +62,7 @@ describe("Canvas layout store", () => {
     const dirs = makeTempDirs();
     cleanups.push(dirs.cleanup);
     const first = await start(dirs);
-    const noteId = await placeNote(first, "Indexes");
+    const noteId = await placeSet(first, "Indexes");
 
     const request: LayoutUpdateRequest = {
       updates: [
