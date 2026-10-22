@@ -2,7 +2,7 @@
 // with a follow-up that quotes the answer, a visible timer, no grades until the end, then the
 // Grader's scores and feedback on the Cards.
 import type { Page } from "@playwright/test";
-import { agentTurn, chooseAgent, expect, openCanvas, resetChatLayout, test } from "./fixtures.ts";
+import { agentTurn, chooseAgent, expect, openCanvas, resetChatLayout, submitUnfinishedSets, test } from "./fixtures.ts";
 
 const chat = (page: Page) => page.locator('.react-flow__node[data-id="chat"]');
 const mockNode = (page: Page) => page.locator(".react-flow__node-practice_set").filter({ hasText: "Мок-интервью" });
@@ -43,6 +43,8 @@ const test3 = {
 test.beforeEach(async ({ page, baseURL }) => {
   await chooseAgent(baseURL!);
   await resetChatLayout(baseURL!);
+  // A Mock interview does not start over an unsubmitted Practice set.
+  await submitUnfinishedSets(baseURL!);
   await openCanvas(page);
 });
 
