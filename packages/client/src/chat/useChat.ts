@@ -26,31 +26,36 @@ export function useChat(): ChatState {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
-  useEffect(
-    () =>
-      subscribeToEvents({
-        // The snapshot loads after the live channel opens, so no change falls between them.
-        onOpen: () => {
-          fetchChat()
-            .then((snapshot) => {
-              setError(undefined);
-              setMessages(snapshot.messages);
-              setBusy(snapshot.busy);
-            })
-            .catch((e: unknown) => setError(String(e)));
-        },
-        onEvent: (event: ServerEvent) => {
-          if (event.type === "chat.message") setMessages((current) => upsert(current, event.message));
-          else if (event.type === "chat.delta") {
-            setMessages((current) =>
-              current.map((m) => (m.id === event.messageId ? { ...m, text: m.text + event.text } : m)),
-            );
-          } else if (event.type === "chat.busy") setBusy(event.busy);
-        },
-        onDisconnect: () => setError("Нет связи с приложением."),
-      }),
-    [],
-  );
+  useEffect(() => {
+    /** Messages that arrived while the snapshot loaded; the snapshot may predate them. */
+    let arrived: ChatMessage[] | undefined;
+    return subscribeToEvents({
+      // The snapshot loads after the live channel opens, so no change falls between them.
+      onOpen: () => {
+        arrived = [];
+        fetchChat()
+          .then((snapshot) => {
+            const later = arrived ?? [];
+            arrived = undefined;
+            setError(undefined);
+            setMessages(later.reduce(upsert, snapshot.messages));
+            setBusy(snapshot.busy);
+          })
+          .catch((e: unknown) => setError(String(e)));
+      },
+      onEvent: (event: ServerEvent) => {
+        if (event.type === "chat.message") {
+          arrived?.push(event.message);
+          setMessages((current) => upsert(current, event.message));
+        } else if (event.type === "chat.delta") {
+          setMessages((current) =>
+            current.map((m) => (m.id === event.messageId ? { ...m, text: m.text + event.text } : m)),
+          );
+        } else if (event.type === "chat.busy") setBusy(event.busy);
+      },
+      onDisconnect: () => setError("Нет связи с приложением."),
+    });
+  }, []);
 
   const send = useCallback(async (text: string) => {
     try {

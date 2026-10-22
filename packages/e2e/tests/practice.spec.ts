@@ -3,7 +3,7 @@
 // and the collapse into a result Card.
 import type { Page } from "@playwright/test";
 import { apiPaths, type CanvasSnapshot, type PracticeSetNode } from "@prepare-to-interview/shared";
-import { agentTurn, apiCall, chooseAgent, expect, openCanvas, placePracticeSet, resetChatLayout, test } from "./fixtures.ts";
+import { agentTurn, apiCall, chooseAgent, expect, openCanvas, placePracticeSet, resetChatLayout, submitUnfinishedSets, test } from "./fixtures.ts";
 
 const chat = (page: Page) => page.locator('.react-flow__node[data-id="chat"]');
 const practiceSet = (page: Page, title: string) => page.locator(".react-flow__node-practice_set").filter({ hasText: title });
@@ -141,6 +141,18 @@ test("the toolbar asks the Interviewer for today's Practice set", async ({ page 
   await expect(chat(page)).toContainText("Хочу подборку на сегодня.");
 });
 
+test("Interviewer replies render basic Markdown without raw HTML or unsafe links", async ({ page, baseURL }) => {
+  await apiCall(baseURL!, apiPaths.chatMessages, { method: "POST", body: { text: "e2e-markdown" } });
+  const bubble = chat(page).locator("p", { hasText: "Итог:" }).locator("..");
+  await expect(bubble.locator("strong")).toHaveText("Итог:");
+  await expect(bubble.locator("li code")).toHaveText("B-tree");
+  await expect(bubble.getByRole("link", { name: "Документация" })).toHaveAttribute("href", "https://www.postgresql.org/docs/");
+  await expect(bubble).toContainText("<b>не HTML</b>");
+  await expect(bubble.locator("b")).toHaveCount(0);
+  await expect(bubble.getByRole("link", { name: "ссылка" })).toHaveCount(0);
+  await expect(bubble).not.toContainText("**");
+});
+
 test("the Interviewer points at a Card and a Topic: the Canvas pans to it and highlights it", async ({ page, baseURL }) => {
   await placePracticeSet(baseURL!, { title: "Показать карточку", cards: [singleCard, { ...multiCard, prompt: "Показать: какие метрики у ретривера?" }] });
   const snapshot = (await apiCall(baseURL!, apiPaths.canvas)) as CanvasSnapshot;
@@ -155,16 +167,8 @@ test("the Interviewer points at a Card and a Topic: the Canvas pans to it and hi
   const map = page.getByRole("region", { name: "Карта навыков" });
   await expect(map.getByRole("heading", { name: "Evals" })).toBeVisible();
   await expect(map.locator("[data-topic-id]")).toHaveAttribute("data-highlighted", "");
-});
-
-test("Interviewer replies render basic Markdown without raw HTML or unsafe links", async ({ page, baseURL }) => {
-  await apiCall(baseURL!, apiPaths.chatMessages, { method: "POST", body: { text: "e2e-markdown" } });
-  const bubble = chat(page).locator("p", { hasText: "Итог:" }).locator("..");
-  await expect(bubble.locator("strong")).toHaveText("Итог:");
-  await expect(bubble.locator("li code")).toHaveText("B-tree");
-  await expect(bubble.getByRole("link", { name: "Документация" })).toHaveAttribute("href", "https://www.postgresql.org/docs/");
-  await expect(bubble).toContainText("<b>не HTML</b>");
-  await expect(bubble.locator("b")).toHaveCount(0);
-  await expect(bubble.getByRole("link", { name: "ссылка" })).toHaveCount(0);
-  await expect(bubble).not.toContainText("**");
+  // Later specs share the Canvas: the set collapses into a small result Card next to the Chat,
+  // so fitting everything keeps the Chat readable.
+  await submitUnfinishedSets(baseURL!);
+  await apiCall(baseURL!, apiPaths.canvasLayout, { method: "PUT", body: { updates: [{ nodeId: set.id, position: { x: 0, y: 360 } }] } });
 });
