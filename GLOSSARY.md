@@ -62,6 +62,10 @@ _Avoid_: Reference, link
 The agent's collection of Topics and Questions for a Preparation target from Sources.
 _Avoid_: Scraping, import
 
+**Research batch**:
+One run of Research for a Preparation target, in the background beside the Chat; what it finds waits as Proposed.
+_Avoid_: Research session, crawl
+
 **Proposed**:
 The status of Research output awaiting the Candidate's approval before it enters the Question bank.
 _Avoid_: Draft, pending
@@ -84,6 +88,10 @@ _Avoid_: Test (for the whole set)
 A live interview where the agent places Cards one at a time, asks follow-ups, and reveals grades only at the end.
 _Avoid_: Exam, real interview
 
+**Follow-up**:
+A Mock interview Card that probes an answer the Candidate just gave, quoting a piece of it.
+_Avoid_: Sub-question, clarification
+
 **Attempt**:
 One answer to one Question, with its score or Skipped status, the quoted evidence, the hint level used, and the mode.
 _Avoid_: Answer (as a record), try
@@ -101,6 +109,10 @@ _Avoid_: Checker, reviewer
 **Mastery**:
 How well the Candidate knows a Topic or Question, derived from recent Attempts.
 _Avoid_: Progress (for a single Topic), level
+
+**Readiness**:
+How prepared the Candidate is for one Preparation target: the Mastery of its Topics, weighted by their priority.
+_Avoid_: Score, progress, completion
 
 **Due**:
 The state of a Question scheduled for repetition now.
