@@ -37,6 +37,8 @@ export interface ChatDeps {
 export interface SendOptions {
   /** The Card the message is about («Обсудить»); the Interviewer receives its context hidden. */
   cardId?: string;
+  /** The message gives the Candidate's answer on that Mock interview Card rather than asking to discuss it. */
+  mockAnswer?: boolean;
 }
 
 interface LiveSession {

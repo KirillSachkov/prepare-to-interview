@@ -73,7 +73,7 @@ export class MockRunner {
   answer(cardId: string): PracticeSetNode {
     if (this.#enforceDeadline()) throw new DomainError("The Mock interview time is up.", "Reload the Canvas.", { candidateMessage: "время интервью вышло." });
     const { node, answer } = this.#mock.answer(cardId);
-    this.#chat.send(answer.dontKnow ? mockDontKnowMessage : mockAnsweredMessage, { cardId });
+    this.#chat.send(answer.dontKnow ? mockDontKnowMessage : mockAnsweredMessage, { cardId, mockAnswer: true });
     return node;
   }
 

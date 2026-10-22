@@ -93,7 +93,7 @@ export class Interviewer {
    * Preparation target starts in onboarding unless they skipped it before. Call `sent` once the
    * agent took the turn, so a failed turn sends the skill and the results again.
    */
-  turnInput(text: string, agentSessionId: string, options: { cardId?: string } = {}): { input: TurnInput; sent: () => void } {
+  turnInput(text: string, agentSessionId: string, options: { cardId?: string; mockAnswer?: boolean } = {}): { input: TurnInput; sent: () => void } {
     this.#lastSession = agentSessionId;
     if (!this.#domain.targets().targets.length && !this.#domain.onboardingStarted() && !this.#domain.currentActivity()) {
       this.#domain.startActivity("onboarding");
@@ -110,7 +110,7 @@ export class Interviewer {
     const pending = !options.cardId && this.#mock.pendingAnswer();
     if (pending) context.push({ uri: appContextUri(`mock-answer/${pending.cardId}`), text: describeMockAnswer(pending) });
     if (options.cardId) {
-      const answer = this.#mock.answerContext(options.cardId);
+      const answer = options.mockAnswer ? this.#mock.answerContext(options.cardId) : null;
       context.push(
         answer
           ? { uri: appContextUri(`mock-answer/${options.cardId}`), text: describeMockAnswer(answer) }

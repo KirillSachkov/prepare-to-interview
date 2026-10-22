@@ -42,6 +42,8 @@ interface Harness {
   dataDir: string;
   driver: () => FakeDriver;
   graderAnswers: string[];
+  /** While set, Grader turns wait for it before replying. */
+  gate: { wait?: Promise<unknown> };
   /** Moves the pinned clock forward. */
   advance: (ms: number) => void;
 }
@@ -49,13 +51,14 @@ interface Harness {
 /** Grader sessions give 2 of 3 and quote the answer's first sentence. */
 async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), clock = { now: start22 }): Promise<Harness> {
   const graderAnswers: string[] = [];
+  const gate: Harness["gate"] = {};
   let driver: FakeDriver | undefined;
   const respond = (config: SessionConfig, input: TurnInput): FakeTurn | undefined => {
     if (!isGrader(config)) return undefined;
     const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(input.text)?.[1] ?? "";
     graderAnswers.push(answer);
     const quote = answer.split(/(?<=[.!?])\s/)[0] ?? answer;
-    return [{ event: { type: "message_chunk", text: verdict(2, quote, "Ключевая идея названа.", "Нет проверки на метриках.") } }];
+    return [...(gate.wait ? [{ waitFor: gate.wait }] : []), { event: { type: "message_chunk", text: verdict(2, quote, "Ключевая идея названа.", "Нет проверки на метриках.") } }];
   };
   const { server } = await startTestServer(dirs, {
     now: () => clock.now,
@@ -70,6 +73,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), clock = { no
     dataDir: dirs.dataDir,
     driver: () => driver!,
     graderAnswers,
+    gate,
     advance: (ms) => (clock.now = new Date(clock.now.getTime() + ms)),
   };
 }
@@ -408,6 +412,25 @@ describe("Ending a Mock interview", () => {
     expect((h.driver().prompts.at(-1)?.hiddenState as HiddenState).mock_interview).toBeNull();
     // Graded, its Cards can be discussed.
     expect((await api(h.server, cardPaths.discuss(set.data.cards[0]!.id))).status).toBe(202);
+  });
+
+  it("discusses a Card while the Grader works on it with its Card context, not as an answer", async () => {
+    const h = await setUp([[tool("next_mock_question", { question: firstQuestion })], [reply("Понял.")], [reply("Давайте обсудим.")]]);
+    const set = await startMock(h);
+    const cardId = set.data.cards[0]!.id;
+    await answerCard(h.server, cardId, { text: answer });
+    await settledChat(h.server);
+    let release: () => void = () => undefined;
+    h.gate.wait = new Promise<void>((resolve) => (release = resolve));
+    await api(h.server, mockPaths.finish(set.id));
+    expect((await mock(h.server)).data.cards[0]?.status).toBe("grading");
+    expect((await api(h.server, cardPaths.discuss(cardId))).status).toBe(202);
+    await settledChat(h.server);
+    const uris = h.driver().prompts.at(-1)?.context?.map((c) => c.uri);
+    expect(uris).toContain(`app://context/card/${cardId}`);
+    expect(uris).not.toContain(`app://context/mock-answer/${cardId}`);
+    release();
+    await gradedMock(h.server);
   });
 
   it("lets the Interviewer end the mock, counting the open Card's saved draft", async () => {
