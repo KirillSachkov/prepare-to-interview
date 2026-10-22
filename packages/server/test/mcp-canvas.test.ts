@@ -120,7 +120,7 @@ describe("MCP tools to live Canvas", () => {
     const result = await client.callTool({ name: "record_attempt", arguments: {} });
     expect(result.isError).toBe(true);
     expect((result.content as { text: string }[])[0]?.text).toMatch(
-      /^Unknown tool "record_attempt"\.\nFix: Call one of: get_profile, .*place_practice_set, end_session, correct_grade\.$/,
+      /^Unknown tool "record_attempt"\.\nFix: Call one of: get_profile, .*place_practice_set.*end_session, correct_grade.*\.$/,
     );
   });
 

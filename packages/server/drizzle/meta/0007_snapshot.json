@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b2c65597-8fae-4b99-9cd5-da54acd89752",
+  "id": "e88dab79-f437-45da-a5bf-08598e9d9dee",
   "prevId": "12616981-d4ca-4fa8-b714-1403dd4c6312",
   "tables": {
     "activities": {
@@ -143,27 +143,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "rotate_reason": {
-          "name": "rotate_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "briefed_at": {
-          "name": "briefed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {},
@@ -300,27 +279,6 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "corrected_from": {
-          "name": "corrected_from",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "correction_reason": {
-          "name": "correction_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "corrected_at": {
-          "name": "corrected_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
@@ -531,6 +489,20 @@
           "autoincrement": false,
           "default": false
         },
+        "follow_up_of": {
+          "name": "follow_up_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "follow_up_quote": {
+          "name": "follow_up_quote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "attempt_id": {
           "name": "attempt_id",
           "type": "text",
@@ -626,13 +598,6 @@
         },
         "card_id": {
           "name": "card_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "proposal_id": {
-          "name": "proposal_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -799,6 +764,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "focus": {
+          "name": "focus",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -822,13 +794,6 @@
         },
         "reported_at": {
           "name": "reported_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "archived_at": {
-          "name": "archived_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1109,99 +1074,6 @@
             "id"
           ],
           "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "review_proposals": {
-      "name": "review_proposals",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "agent_session_id": {
-          "name": "agent_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "target_id": {
-          "name": "target_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "profile": {
-          "name": "profile",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decisions": {
-          "name": "decisions",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "settled_at": {
-          "name": "settled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "review_proposals_agent_session_id_agent_sessions_id_fk": {
-          "name": "review_proposals_agent_session_id_agent_sessions_id_fk",
-          "tableFrom": "review_proposals",
-          "tableTo": "agent_sessions",
-          "columnsFrom": [
-            "agent_session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "review_proposals_target_id_preparation_targets_id_fk": {
-          "name": "review_proposals_target_id_preparation_targets_id_fk",
-          "tableFrom": "review_proposals",
-          "tableTo": "preparation_targets",
-          "columnsFrom": [
-            "target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

@@ -15,6 +15,7 @@ import { loopbackHost } from "./config.ts";
 import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
 import { Domain } from "./domain/domain.ts";
+import { MockInterviews } from "./domain/mock.ts";
 import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
@@ -23,6 +24,7 @@ import { createTools } from "./mcp/tools.ts";
 import { Continuity } from "./interviewer/continuity.ts";
 import { Grader } from "./interviewer/grader.ts";
 import { defaultContentDir, Interviewer } from "./interviewer/interviewer.ts";
+import { MockRunner } from "./interviewer/mock-runner.ts";
 import { PracticeRunner } from "./interviewer/practice-runner.ts";
 import { Settings } from "./settings/settings.ts";
 
@@ -66,6 +68,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const now = options.now ?? (() => new Date());
   const domain = new Domain(db, events, now);
   const practice = new Practice({ db, domain, canvas, now });
+  const mockInterviews = new MockInterviews({ db, domain, practice, now });
   const contentDir = options.interviewerDir ?? defaultContentDir;
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
@@ -77,6 +80,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     contentDir,
     domain,
     practice,
+    mock: mockInterviews,
     mcpServers: () => mcpServers,
     briefings: continuity,
     now,
@@ -98,6 +102,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   dayWatch.unref();
   const grader = new Grader({ db, settings, drivers: drivers.get, contentDir });
   const runner = new PracticeRunner({ practice, grader, chat });
+  const mock = new MockRunner({ mock: mockInterviews, runner, chat, now });
   // The review after a graded set or a Mock interview waits for the Grader.
   continuity.holdReview(() => runner.grading);
   runner.onSettled(() => continuity.releaseReview());
@@ -111,10 +116,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     practice,
     runner,
     continuity,
+    mock,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
-    mcp: createMcpHandler(createTools({ domain, practice, interviewer, continuity }), appVersion),
+    mcp: createMcpHandler(createTools({ domain, practice, interviewer, continuity, mock }), appVersion),
     clientDir: options.clientDir ?? defaultClientDir,
   });
 
@@ -147,6 +153,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     mcpServer,
     close: async () => {
       clearInterval(dayWatch);
+      mock.close();
       await chat.close();
       await runner.close();
       await drivers.dispose();

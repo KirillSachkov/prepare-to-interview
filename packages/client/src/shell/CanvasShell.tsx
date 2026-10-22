@@ -14,6 +14,9 @@ import { flowNodeTypes, nodeMenu, NotifyContext, SetCollapsedContext, type FlowN
 import { HistoryDialog } from "../history/HistoryView.tsx";
 import { focusCardEvent } from "../practice/focus.ts";
 import { requestPractice, submitPracticeSet } from "../practice/practice-api.ts";
+import { answerMockCard } from "../practice/mock-api.ts";
+import { openMockCard } from "../nodes/mock-interview.tsx";
+import { MockDialog } from "./MockDialog.tsx";
 import { buildCommands, type Commands, type Tool } from "./commands.ts";
 import { ContextMenu, type OpenMenu } from "./ContextMenu.tsx";
 import { ControlPanel, type ControlPanelPopover } from "./ControlPanel.tsx";
@@ -31,7 +34,7 @@ const fitPadding = { top: "120px", bottom: "72px", left: "48px", right: "48px" }
 const fitOptions: FitViewOptions = { padding: fitPadding, maxZoom: 1 };
 const zoomDuration = { duration: 150 };
 
-type Dialog = "shortcuts" | "settings" | "question" | "topic" | "history";
+type Dialog = "shortcuts" | "settings" | "question" | "topic" | "mock" | "history";
 
 /** The Practice set node a Card belongs to. */
 function setOfCard(nodes: FlowNode[], cardId: string): FlowNode | undefined {
@@ -92,6 +95,7 @@ export function CanvasShell() {
     practiceToday: () => askForPractice({ kind: "today" }),
     practiceTopic: () => setDialog("topic"),
     quiz: () => askForPractice({ kind: "quiz" }),
+    startMock: () => setDialog("mock"),
     submitPractice: () => {
       const focusedSet = document.activeElement?.closest<HTMLElement>("[data-set-id]")?.dataset.setId;
       const sets = nodes.filter((n) => n.type === "practice_set");
@@ -100,6 +104,11 @@ export function CanvasShell() {
         sets.findLast((n) => !n.data.collapsed && (n.data.content as PracticeSetNode["data"]).status === "active");
       const content = node?.data.content as PracticeSetNode["data"] | undefined;
       if (!node || content?.status !== "active") return;
+      if (content.mode === "mock") {
+        const open = openMockCard(content);
+        if (open) answerMockCard(open.id).catch((e: unknown) => setNotice(`Не удалось ответить: ${e instanceof Error ? e.message : String(e)}`));
+        return;
+      }
       submitPracticeSet({ id: node.id, kind: "practice_set", position: node.position, collapsed: node.data.collapsed, data: content })
         .catch((e: unknown) => setNotice(`Не удалось отправить подборку: ${e instanceof Error ? e.message : String(e)}`));
     },
@@ -283,6 +292,15 @@ export function CanvasShell() {
           <HistoryDialog
             close={() => setDialog(null)}
             discussed={() => {
+              setDialog(null);
+              showChat();
+            }}
+          />
+        )}
+        {dialog === "mock" && (
+          <MockDialog
+            close={() => setDialog(null)}
+            started={() => {
               setDialog(null);
               showChat();
             }}

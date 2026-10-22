@@ -84,9 +84,8 @@ export class Continuity implements SessionPolicy {
     if (session.usedTokens !== null && session.contextSize && session.usedTokens / session.contextSize >= rotationUsageRatio) {
       return rotationReasons.usage;
     }
-    // A boundary or end_session waits while the review runs and while a Practice set is unsubmitted.
-    if (!session.rotateReason || this.#practiceInProgress()) return null;
-    if (session.rotateReason === rotationReasons.sessionEnded) return session.rotateReason;
+    // A boundary or end_session waits for the review (pending or running) and an unsubmitted Practice set.
+    if (!session.rotateReason || this.#pendingReview || this.#practiceInProgress()) return null;
     return this.#domain.currentActivity()?.kind === "review" ? null : session.rotateReason;
   }
 
@@ -193,6 +192,8 @@ export class Continuity implements SessionPolicy {
       .set({ rotateReason: rotationReasons.boundary(activity.kind) })
       .where(and(eq(agentSessions.role, "chat"), isNull(agentSessions.endedAt), isNull(agentSessions.rotateReason)))
       .run();
+    // Another Activity already took over, such as a new onboarding: no review, only the rotation.
+    if (this.#domain.currentActivity()) return;
     this.#pendingReview = activity;
     // After the caller finished its change, such as enqueueing grading or posting a summary.
     queueMicrotask(() => this.releaseReview());

@@ -78,7 +78,9 @@ export interface ShellControls {
   practiceTopic: () => void;
   /** Asks the Interviewer in the Chat for a Quiz. */
   quiz: () => void;
-  /** Submits the Practice set holding the focused Card, or the latest unsubmitted one. */
+  /** Opens the dialog for a Mock interview's duration and focus. */
+  startMock: () => void;
+  /** Submits the Practice set holding the focused Card, or the latest unsubmitted one; in a Mock interview, answers its open Card. */
   submitPractice: () => void;
   /** Opens the history of graded Practice sets that left the Canvas. */
   openHistory: () => void;
@@ -116,7 +118,7 @@ export function buildCommands(c: ShellControls): Commands {
       ...(c.due ? { badge: c.due } : {}),
     },
     "practice.topic": { id: "practice.topic", label: "Подборка по теме…", group: "Инструменты", run: c.practiceTopic },
-    "mock.start": { id: "mock.start", label: "Мок-интервью", group: "Инструменты", icon: "mock", hotkey: letter("M") },
+    "mock.start": { id: "mock.start", label: "Мок-интервью", group: "Инструменты", icon: "mock", hotkey: letter("M"), run: c.startMock },
     "research.start": {
       id: "research.start",
       label: "Исследовать",

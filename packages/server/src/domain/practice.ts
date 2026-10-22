@@ -30,6 +30,7 @@ import {
 } from "../db/schema.ts";
 import { checkTest, correctOptions, hintCap, localDate, maxHintRungs, maxScore } from "./arithmetic.ts";
 import { DomainError, languages, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
+import { mockView } from "./mock.ts";
 import type { Tx } from "./progress.ts";
 
 export interface PlaceSetInput {
@@ -81,6 +82,7 @@ export interface SetResult {
   setId: string;
   title: string;
   kind: PracticeSetKind;
+  mode: AttemptMode;
   score: number;
   max: number;
   skipped: number;
@@ -150,6 +152,7 @@ export interface CorrectedGrade {
 const wideSetWidth = 800;
 const narrowSetWidth = 440;
 const resultCardWidth = 260;
+const mockWidth = 520;
 
 export interface PracticeOptions {
   db: Database;
@@ -210,7 +213,7 @@ export class Practice {
     const set = this.#db
       .select()
       .from(practiceSets)
-      .where(eq(practiceSets.status, "active"))
+      .where(and(eq(practiceSets.status, "active"), eq(practiceSets.mode, "training")))
       .orderBy(asc(practiceSets.createdAt))
       .all()
       .find((s) => !this.#expired(s));
@@ -220,9 +223,13 @@ export class Practice {
     return { setId: set.id, title: set.title, answered, cards: rows.length };
   }
 
+  /** Refused for a Card of a running Mock interview: nothing is discussed before the mock ends. */
   cardContext(cardId: string): CardContext {
     const card = this.#card(cardId);
     const set = this.#liveSet(card.setId);
+    if (set.mode === "mock" && set.status === "active") {
+      throw invalid("The Mock interview is still running; Cards are discussed after it ends.", "обсудить карточку можно после интервью.");
+    }
     const question = this.#question(card.questionId);
     const attempt = card.attemptId ? this.#attempt(card.attemptId) : undefined;
     return {
@@ -290,7 +297,14 @@ export class Practice {
     if (!input.questions.length || input.questions.length > maxPracticeCards) {
       throw new DomainError(`A Practice set holds 1 to ${maxPracticeCards} Cards.`, `Pass 1-${maxPracticeCards} questions.`);
     }
-    this.#checkQuestions(input);
+    this.checkQuestions(input);
+    if (this.#runningMock()) {
+      throw new DomainError(
+        "A Mock interview is running; a Practice set would interrupt it.",
+        "Wait until the Mock interview ends, or ask the Candidate whether to finish it first.",
+        { candidateMessage: "сначала завершите мок-интервью." },
+      );
+    }
     const unfinished = this.unfinished();
     if (unfinished && !input.replaceUnfinished) {
       throw new DomainError(
@@ -309,7 +323,12 @@ export class Practice {
     const id = crypto.randomUUID();
     const collapse: string[] = [];
     const archive: string[] = [];
-    const expired = this.#db.select().from(practiceSets).where(eq(practiceSets.status, "active")).all().filter((s) => this.#expired(s));
+    const expired = this.#db
+      .select()
+      .from(practiceSets)
+      .where(and(eq(practiceSets.status, "active"), eq(practiceSets.mode, "training")))
+      .all()
+      .filter((s) => this.#expired(s));
     this.#db.transaction((tx) => {
       if (unfinished) tx.update(practiceSets).set({ status: "abandoned" }).where(eq(practiceSets.id, unfinished.setId)).run();
       // A timed Quiz whose time ran out with nobody to submit it is submitted now: tests need no Grader.
@@ -352,16 +371,27 @@ export class Practice {
     for (const set of expired) this.#settle(set.id);
     const expanded = [...this.#canvas.layouts(collapse).entries()].filter(([, l]) => !l.collapsed).map(([nodeId]) => nodeId);
     if (expanded.length) this.#canvas.updateLayout(expanded.map((nodeId) => ({ nodeId, collapsed: true })));
-    this.#canvas.place(id, this.#rightmostWidth(id));
-    const node = this.node(id);
+    return { node: this.placeNode(id), activity: { id: activity.id, started } };
+  }
+
+  /** Puts a new set's node right of the rightmost node and tells live clients. */
+  placeNode(setId: string): PracticeSetNode {
+    this.#canvas.place(setId, this.#rightmostWidth(setId));
+    const node = this.node(setId);
     this.#canvas.added(node);
-    return { node, activity: { id: activity.id, started } };
+    return node;
+  }
+
+  /** Tells live clients that a set's content changed, such as a Card added to a Mock interview. */
+  changed(setId: string): PracticeSetNode {
+    return this.#changed(setId);
   }
 
   /** Stores the Candidate's draft on an open Card; it survives reload. */
   saveDraft(cardId: string, draft: Partial<CardDraft>): void {
     const card = this.#openCard(cardId);
-    if (this.#expired(this.#set(card.setId))) throw invalid("The Quiz time is up.", "время квиза вышло.");
+    const set = this.#set(card.setId);
+    if (this.#expired(set)) throw set.mode === "mock" ? mockTimeUp() : invalid("The Quiz time is up.", "время квиза вышло.");
     const question = this.#question(card.questionId);
     const update: Partial<CardRow> = {};
     if (draft.text !== undefined) {
@@ -375,6 +405,7 @@ export class Practice {
   /** Reveals the next Hint ladder rung of an open-answer Card; it lowers the maximum score by one. */
   hint(cardId: string): PracticeSetNode {
     const card = this.#openCard(cardId);
+    if (this.#set(card.setId).mode === "mock") throw invalid("A Mock interview has no hints.", "в мок-интервью подсказок нет.");
     const question = this.#question(card.questionId);
     if (card.hintsUsed >= hintRungs(question)) throw invalid("This Card has no more hints.", "подсказок больше нет.");
     this.#db.update(cards).set({ hintsUsed: card.hintsUsed + 1 }).where(eq(cards.id, cardId)).run();
@@ -387,23 +418,28 @@ export class Practice {
     // A Card whose grading failed can still be skipped instead of checked again.
     if (card.status !== "failed") this.#openCard(cardId);
     else this.#liveSet(card.setId);
+    if (this.#set(card.setId).mode === "mock" && card.status !== "failed") throw mockAnswerOnly();
     this.#db.transaction((tx) => this.#record(tx, card, { skipped: true }));
     return this.#settle(card.setId);
   }
 
   /**
    * Submits the whole Practice set: test Cards are checked at once, unanswered Cards become
-   * Skipped, and open answers wait for the Grader. Returns the grading jobs.
+   * Skipped, and open answers wait for the Grader. Returns the grading jobs. A Mock interview is
+   * submitted only by ending it (`endingMock`).
    */
-  submit(setId: string): { node: PracticeSetNode; jobs: GradingJob[] } {
+  submit(setId: string, options: { endingMock?: boolean } = {}): { node: PracticeSetNode; jobs: GradingJob[] } {
     const set = this.#set(setId);
+    if (set.mode === "mock" && !options.endingMock) {
+      throw invalid("A Mock interview ends with finish, not submit.", "мок-интервью завершается кнопкой «Завершить».");
+    }
     if (set.status !== "active") {
       throw invalid(`Practice set "${set.title}" was already submitted.`, "подборка уже отправлена.");
     }
     const jobs: GradingJob[] = [];
     this.#db.transaction((tx) => {
       for (const card of this.#cards(setId, tx)) {
-        if (card.status !== "open") continue;
+        if (card.status !== "open" && card.status !== "answered") continue;
         const job = this.#answer(tx, card);
         if (job) jobs.push(job);
       }
@@ -420,6 +456,7 @@ export class Practice {
     const card = this.#card(cardId);
     const set = this.#liveSet(card.setId);
     if (card.status !== "open" && card.status !== "failed") throw invalid("This Card is already answered.", "на карточку уже есть ответ.");
+    if (card.status === "open" && set.mode === "mock") throw mockAnswerOnly();
     if (card.status === "open" && set.status === "active" && set.reveal === "after_submit" && !card.retry) {
       throw invalid("This Practice set shows grades only after it is submitted.", "оценки появятся после отправки подборки.");
     }
@@ -458,7 +495,7 @@ export class Practice {
   retry(cardId: string): PracticeSetNode {
     const card = this.#card(cardId);
     if (card.status !== "graded" && card.status !== "skipped") throw invalid("Only an answered Card can be retried.", "повторить можно только карточку с ответом.");
-    this.#onCanvas(card.setId);
+    if (this.#onCanvas(card.setId).mode === "mock") throw invalid("Mock interview Cards are not retried.", "карточку мок-интервью нельзя пройти ещё раз; попросите подборку.");
     this.#db.update(cards).set({ status: "open", retry: true, error: null }).where(eq(cards.id, cardId)).run();
     return this.#changed(card.setId);
   }
@@ -558,7 +595,8 @@ export class Practice {
     return this.#set(card.setId).status === "abandoned" ? undefined : card;
   }
 
-  #checkQuestions(input: PlaceSetInput): void {
+  /** Refuses Questions a set cannot grade: open ones without a Reference answer, and open ones in a Quiz. */
+  checkQuestions(input: Pick<PlaceSetInput, "kind" | "questions">): void {
     const ids = input.questions.flatMap((q) => (q.questionId !== undefined ? [q.questionId] : []));
     const rows = new Map(
       (ids.length ? this.#db.select().from(questions).where(inArray(questions.id, ids)).all() : []).map((q) => [q.id, q]),
@@ -663,7 +701,8 @@ export class Practice {
       if (!running) this.#domain.completeActivity(set.activityId, `Practice set "${set.title}": ${result.score}/${result.max}, ${result.skipped} skipped.`);
     }
     let node = this.#changed(setId);
-    if (result) {
+    // A graded Mock interview stays expanded: its grades and feedback appear on the Cards.
+    if (result && set.mode !== "mock") {
       this.#canvas.updateLayout([{ nodeId: setId, collapsed: true }]);
       node = { ...node, collapsed: true };
     }
@@ -700,6 +739,7 @@ export class Practice {
       setId: set.id,
       title: set.title,
       kind: set.kind,
+      mode: set.mode,
       score: graded.reduce((sum, c) => sum + (c.score ?? 0), 0),
       max: graded.length * maxScore,
       skipped: cardResults.length - graded.length,
@@ -729,6 +769,8 @@ export class Practice {
     const result = set.status === "graded" ? this.#result(set) : null;
     return {
       title: set.title,
+      mode: set.mode,
+      mock: mockView(set),
       kind: set.kind,
       reveal: set.reveal,
       // Dropped sets never reach the Canvas; see #liveSet.
@@ -753,6 +795,7 @@ export class Practice {
           attempt: shown ? { ...evidence(attempt), correct: q.type === "open" ? null : correctOptions(q.options ?? []) } : null,
           referenceAnswer: attempt ? q.referenceAnswer : null,
           error: c.error,
+          followUp: c.followUpOf ? { cardId: c.followUpOf, quote: c.followUpQuote ?? "" } : null,
         } satisfies CardView;
       }),
       result: result && { score: result.score, max: result.max, skipped: result.skipped },
@@ -764,6 +807,7 @@ export class Practice {
     const rightmost = sets.reduce<PracticeSetNode | undefined>((best, n) => (!best || n.position.x > best.position.x ? n : best), undefined);
     if (!rightmost) return narrowSetWidth;
     if (rightmost.collapsed) return resultCardWidth;
+    if (rightmost.data.mode === "mock") return mockWidth;
     return rightmost.data.cards.length >= wideSetCards ? wideSetWidth : narrowSetWidth;
   }
 
@@ -775,6 +819,10 @@ export class Practice {
       .where(eq(practiceSets.id, setId))
       .get();
     return languages.find((l) => l === row?.language) ?? "ru";
+  }
+
+  #runningMock(): boolean {
+    return this.#db.select({ id: practiceSets.id }).from(practiceSets).where(and(eq(practiceSets.status, "active"), eq(practiceSets.mode, "mock"))).get() !== undefined;
   }
 
   #set(setId: string): SetRow {
@@ -834,6 +882,14 @@ export class Practice {
   #topicName(topicId: string, tx: Tx | Database = this.#db): string {
     return tx.select({ name: topics.name }).from(topics).where(eq(topics.id, topicId)).get()?.name ?? "";
   }
+}
+
+function mockTimeUp(): DomainError {
+  return invalid("The Mock interview time is up.", "время интервью вышло.");
+}
+
+function mockAnswerOnly(): DomainError {
+  return invalid("Mock interview Cards are answered with answer and graded when the mock ends.", "в мок-интервью нажмите «Ответить»; оценки появятся в конце.");
 }
 
 function evidence(attempt: AttemptRow): AttemptEvidence {

@@ -36,13 +36,13 @@ export class PracticeRunner {
 
   submit(setId: string): PracticeSetNode {
     const { node, jobs } = this.#practice.submit(setId);
-    this.#enqueue(jobs);
+    this.grade(jobs);
     return node;
   }
 
   check(cardId: string): PracticeSetNode {
     const { node, jobs } = this.#practice.check(cardId);
-    this.#enqueue(jobs);
+    this.grade(jobs);
     return node;
   }
 
@@ -70,7 +70,8 @@ export class PracticeRunner {
     this.#stopped = true;
   }
 
-  #enqueue(jobs: GradingJob[]): void {
+  /** Queues open answers for the Grader, such as those of a finished Mock interview. */
+  grade(jobs: GradingJob[]): void {
     this.#queue.push(...jobs);
     while (this.#running.size < parallelGradings && this.#queue.length) {
       const run: Promise<void> = this.#drain().finally(() => this.#running.delete(run));
@@ -100,14 +101,22 @@ export class PracticeRunner {
 /** The short grading summary the Chat receives, in Russian. */
 export function summary(result: SetResult): string {
   const checked = result.kind === "quiz" ? "Квиз проверен" : "Подборка проверена";
-  const lines = [`${checked}: «${result.title}» — ${result.score} из ${result.max}.`];
+  const lines = [
+    result.mode === "mock"
+      ? `Мок-интервью проверено: ${result.score} из ${result.max}.`
+      : `${checked}: «${result.title}» — ${result.score} из ${result.max}.`,
+  ];
   // A Topic with any weak answer needs repetition; only Topics answered fully are strong.
   const weak = unique(result.cards.filter((c) => c.status === "graded" && (c.score ?? 0) <= 1).map((c) => c.topic));
   const strong = unique(result.cards.filter((c) => c.status === "graded" && c.score === 3).map((c) => c.topic)).filter((t) => !weak.includes(t));
   if (strong.length) lines.push(`Уверенно: ${strong.join(", ")}.`);
   if (weak.length) lines.push(`Стоит повторить: ${weak.join(", ")}.`);
   if (result.skipped) lines.push(`Пропущено: ${result.skipped}.`);
-  lines.push("Оценки и разбор — на карточках; нажмите «Обсудить», чтобы разобрать ответ.");
+  lines.push(
+    result.mode === "mock"
+      ? "Оценки и разбор — на карточках; напишите в чат, чтобы Интервьюер разобрал интервью, или нажмите «Обсудить» на карточке."
+      : "Оценки и разбор — на карточках; нажмите «Обсудить», чтобы разобрать ответ.",
+  );
   return lines.join(" ");
 }
 

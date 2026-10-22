@@ -66,7 +66,7 @@ export function continuityTools({ domain, practice, continuity }: { domain: Doma
         return { session_id: result.sessionId, proposal_id: result.proposalId };
       },
       summarize: (o) =>
-        `Recorded the session summary.${o.proposal_id ? " The Candidate sees your proposed profile and Decision log updates with buttons to save or drop them; do not save them yourself." : ""} The next turn continues in a fresh Agent session.`,
+        `Recorded the session summary.${o.proposal_id ? " The Candidate sees your proposed profile and Decision log updates with buttons to save or drop them; do not save them yourself." : ""} The Chat moves to a fresh Agent session once nothing is in progress.`,
     }),
 
     defineTool({

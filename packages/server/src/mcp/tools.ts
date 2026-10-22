@@ -14,7 +14,9 @@ import {
 import type { Practice } from "../domain/practice.ts";
 import type { Continuity } from "../interviewer/continuity.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
+import type { MockRunner } from "../interviewer/mock-runner.ts";
 import { continuityTools, refuseDuringReview } from "./continuity-tools.ts";
+import { mockTools } from "./mock-tools.ts";
 import { defineTool, shortText, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
@@ -22,6 +24,7 @@ export interface ToolDeps {
   practice: Practice;
   interviewer: Interviewer;
   continuity: Continuity;
+  mock: MockRunner;
 }
 
 const topicName = shortText(120).describe("Topic name as the Market names it, such as \"PostgreSQL indexes\".");
@@ -101,7 +104,7 @@ const rubricAnchorsInput = z
   .strictObject({ "0": shortText(500).optional(), "1": shortText(500).optional(), "2": shortText(500).optional(), "3": shortText(500).optional() })
   .describe("What each Rubric score means for this Question.");
 
-const practiceCardInput = z.union([
+export const practiceCardInput = z.union([
   z
     .strictObject({
       question_id: z.string().min(1).describe("A Question from get_progress."),
@@ -128,7 +131,7 @@ const practiceCardInput = z.union([
     .describe("A new Question you compose; it enters the bank."),
 ]);
 
-function toPracticeQuestion(card: z.output<typeof practiceCardInput>): PracticeQuestion {
+export function toPracticeQuestion(card: z.output<typeof practiceCardInput>): PracticeQuestion {
   const fill = {
     ...(card.reference_answer !== undefined && { referenceAnswer: card.reference_answer }),
     ...(card.rubric_anchors && { rubricAnchors: card.rubric_anchors }),
@@ -151,7 +154,7 @@ const queuedOutput = z.strictObject({
 });
 
 /** The app's MCP tool set; every change goes through the domain core, which validates it. */
-export function createTools({ domain, practice, interviewer, continuity }: ToolDeps): ToolDefinition[] {
+export function createTools({ domain, practice, interviewer, continuity, mock }: ToolDeps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_profile",
@@ -496,6 +499,7 @@ export function createTools({ domain, practice, interviewer, continuity }: ToolD
       summarize: (o) =>
         `Placed ${o.kind === "quiz" ? "a Quiz" : "a Practice set"} with ${o.cards.length} Cards on the Canvas (${o.practice_set_id}). The Candidate answers on the Cards; the app grades and tells you the results.${o.skill ? ` Follow this skill:\n\n${o.skill}` : ""}`,
     }),
+    ...mockTools({ mock, interviewer }),
     ...continuityTools({ domain, practice, continuity }),
   ];
 }

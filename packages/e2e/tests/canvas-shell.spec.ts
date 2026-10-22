@@ -42,9 +42,10 @@ test("chrome matches variant A", async ({ page }) => {
   await expect(bar.getByRole("button", { name: "Выделение" })).toHaveAttribute("aria-pressed", "true");
   // Later tickets implement the remaining activity actions; until then they read as "coming soon".
   await expect(bar.getByRole("button", { name: "Подборка на сегодня" })).toBeEnabled();
-  await expect(bar.getByRole("button", { name: "Мок-интервью" })).toBeDisabled();
-  await bar.getByRole("button", { name: "Мок-интервью" }).hover({ force: true });
-  await expect(page.getByRole("tooltip").filter({ hasText: "Мок-интервью · скоро" })).toBeVisible();
+  await expect(bar.getByRole("button", { name: "Мок-интервью" })).toBeEnabled();
+  await expect(bar.getByRole("button", { name: "Исследовать" })).toBeDisabled();
+  await bar.getByRole("button", { name: "Исследовать" }).hover({ force: true });
+  await expect(page.getByRole("tooltip").filter({ hasText: "Исследовать · скоро" })).toBeVisible();
   await expect(page.getByText("Чтобы двигать холст, зажмите колесо мыши или пробел, либо выберите руку (H)")).toBeVisible();
 
   await expect(page.getByRole("button", { name: "Цель подготовки" })).toContainText("Цель не выбрана");
@@ -155,8 +156,8 @@ test("tool, grid, Chat, Zen, and shortcuts hotkeys", async ({ page }) => {
   await expect(chatNode(page)).toContainText("Агент для программирования");
   await page.mouse.click(emptySpot.x, emptySpot.y);
 
-  await page.keyboard.press("m");
-  await expect(page.getByRole("status")).toHaveText("«Мок-интервью» — скоро");
+  await page.keyboard.press("r");
+  await expect(page.getByRole("status")).toHaveText("«Исследовать» — скоро");
 
   await page.keyboard.press("Alt+KeyZ");
   await expect(toolbar(page)).toHaveCount(0);
@@ -215,7 +216,7 @@ test("context menus depend on the target under the cursor", async ({ page, baseU
   await page.mouse.click(emptySpot.x, emptySpot.y, { button: "right" });
   const pane = menu(page, "canvas");
   await expect(pane.getByRole("menuitem", { name: /Подборка на сегодня/ })).toBeEnabled();
-  await expect(pane.getByRole("menuitem", { name: /Мок-интервью/ })).toBeDisabled();
+  await expect(pane.getByRole("menuitem", { name: /Мок-интервью/ })).toBeEnabled();
   await expect(pane.getByRole("menuitem", { name: /Показать всё/ })).toBeEnabled();
   await pane.getByRole("menuitem", { name: /Сетка: выключить/ }).click();
   await expect(grid(page)).toHaveCount(0);

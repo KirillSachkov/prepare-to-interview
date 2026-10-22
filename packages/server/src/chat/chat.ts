@@ -54,6 +54,8 @@ export interface SessionPolicy {
 export interface SendOptions {
   /** The Card the message is about («Обсудить»); the Interviewer receives its context hidden. */
   cardId?: string;
+  /** The message gives the Candidate's answer on that Mock interview Card rather than asking to discuss it. */
+  mockAnswer?: boolean;
 }
 
 /** A turn the app starts without a Candidate message, such as the review at an Activity boundary. */
@@ -196,7 +198,8 @@ export class Chat {
     this.#deps.events.publish({ type: "chat.busy", busy: true });
     turn.done = this.#run(turn, text, options, app !== undefined).finally(() => {
       this.#turn = undefined;
-      app?.done?.();
+      // After shutdown the database may be closed.
+      if (!this.#closing) app?.done?.();
       this.#deps.events.publish({ type: "chat.busy", busy: false });
       this.#next();
     });

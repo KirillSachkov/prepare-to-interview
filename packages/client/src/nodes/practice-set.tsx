@@ -22,9 +22,9 @@ const typeLabels: Record<CardView["type"], string> = {
 };
 
 /** Error text of a failed action, in Russian. */
-const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
+export const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-function useAction() {
+export function useAction() {
   const notify = useContext(NotifyContext);
   return (run: () => Promise<unknown>, failure: string) => {
     run().catch((e: unknown) => notify(`${failure}: ${reason(e)}`));
@@ -270,7 +270,7 @@ function Card({ card, set }: { card: CardView; set: PracticeSetView }) {
   );
 }
 
-function Options({
+export function Options({
   card,
   chosen,
   editable,
@@ -319,7 +319,7 @@ function Options({
   );
 }
 
-function Feedback({ card }: { card: CardView }) {
+export function Feedback({ card }: { card: CardView }) {
   const attempt = card.attempt;
   if (!attempt || attempt.status === "skipped") return null;
   const testVerdict = attempt.score === 3 ? "Верно." : attempt.score === 0 ? "Неверно." : "Частично верно.";
@@ -338,7 +338,7 @@ function Feedback({ card }: { card: CardView }) {
   );
 }
 
-function ScoreDots({ score }: { score: number }) {
+export function ScoreDots({ score }: { score: number }) {
   const color = score === 3 ? "bg-emerald-500" : score === 2 ? "bg-amber-500" : "bg-rose-500";
   return (
     <span className="inline-flex items-center gap-1" aria-label={`Оценка ${score} из 3`}>
@@ -367,7 +367,7 @@ function Ring({ value, children }: { value: number; children: ReactNode }) {
   );
 }
 
-function ResultCard(props: Props) {
+export function ResultCard(props: Props) {
   const set = props.content;
   const result = set.result;
   return (

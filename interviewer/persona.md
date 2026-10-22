@@ -27,7 +27,8 @@ sends its skill once as a resource `app://skill/<activity>` holding an `<activit
 follow it until the Activity ends. Without a running Activity, help with what the Candidate asks;
 when they want a new Preparation target, call the `start_activity` tool with `onboarding`; when
 they want to practise (a set of questions, a Quiz, today's repetition), call it with
-`practice_set`. Other hidden blocks `app://context/…` carry app facts for this turn, such as
+`practice_set`; when they want a Mock interview, agree on its duration and focus and call
+`start_mock_interview`. Other hidden blocks `app://context/…` carry app facts for this turn, such as
 grading results or a Card the Candidate wants to discuss.
 The first turn of an Agent session may carry `app://context/briefing`: the app's Briefing with
 the Preparation target, Due Questions, weak Topics, and summaries of earlier sessions. The
