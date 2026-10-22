@@ -1,6 +1,8 @@
+import { useEffect, useId, useState, type SyntheticEvent } from "react";
 import { settingsSections } from "../settings/sections.ts";
 import type { CommandGroup, Commands } from "./commands.ts";
 import { modLabel } from "./hotkeys.ts";
+import { addOwnQuestion, fetchTopics } from "./target.ts";
 import { comingSoonLabel, Kbd, Modal } from "./ui.tsx";
 
 const groupOrder: CommandGroup[] = ["Инструменты", "Холст", "Карточки", "Вид"];
@@ -68,6 +70,87 @@ export function SettingsDialog({ close }: { close: () => void }) {
       ) : (
         <p className="text-[13px] text-stone-500">Настройки появятся позже.</p>
       )}
+    </Modal>
+  );
+}
+
+/** The Candidate's own Question, such as one from a real interview, saved straight into the bank. */
+export function QuestionDialog({ close, added }: { close: () => void; added: (topic: string) => void }) {
+  const [topics, setTopics] = useState<string[]>([]);
+  const [topic, setTopic] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const listId = useId();
+
+  useEffect(() => {
+    fetchTopics()
+      .then((response) => setTopics(response.topics))
+      .catch(() => undefined);
+  }, []);
+
+  const submit = (event: SyntheticEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    addOwnQuestion({ topic: topic.trim(), prompt: prompt.trim() })
+      .then((response) => added(response.topic))
+      .catch((e: unknown) => setError(`Не удалось добавить вопрос: ${e instanceof Error ? e.message : String(e)}`))
+      .finally(() => setSaving(false));
+  };
+
+  const field = "w-full rounded-lg border border-stone-200 px-3 py-2 text-[13px] outline-none focus:border-indigo-300";
+  return (
+    <Modal title="Свой вопрос" close={close} width={480}>
+      <form onSubmit={submit} className="space-y-3">
+        <label className="block text-[12.5px] text-stone-600">
+          Вопрос
+          <textarea
+            autoFocus
+            required
+            maxLength={4000}
+            rows={4}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Например, вопрос с прошлого собеседования"
+            className={`${field} mt-1 resize-y`}
+          />
+        </label>
+        <label className="block text-[12.5px] text-stone-600">
+          Тема
+          <input
+            required
+            maxLength={120}
+            list={listId}
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="Выберите тему или введите новую"
+            className={`${field} mt-1`}
+          />
+          <datalist id={listId}>
+            {topics.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        </label>
+        {error && (
+          <p role="alert" className="text-[12.5px] text-red-700">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={close} className="rounded-lg px-3 py-1.5 text-[13px] text-stone-500 hover:bg-stone-100">
+            Отмена
+          </button>
+          <button
+            type="submit"
+            disabled={saving || !prompt.trim() || !topic.trim()}
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[13px] text-white disabled:opacity-50"
+          >
+            Добавить в банк
+          </button>
+        </div>
+      </form>
     </Modal>
   );
 }

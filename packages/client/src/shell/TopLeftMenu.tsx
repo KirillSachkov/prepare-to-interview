@@ -17,7 +17,7 @@ export function TopLeftMenu({
   setOpen: (open: boolean) => void;
   openSettings: () => void;
 }) {
-  const { active, all, switchTo } = useTargets();
+  const { active, all, switchTo, error } = useTargets();
   const close = () => setOpen(false);
   return (
     <div className="absolute top-4 left-4 z-30 flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
@@ -41,11 +41,11 @@ export function TopLeftMenu({
       >
         <span className="font-semibold text-stone-800">{active?.name ?? "Цель не выбрана"}</span>
         <span className="text-stone-300">·</span>
-        <span className="text-indigo-600 tabular-nums">{active ? `${active.readiness}%` : "—"}</span>
-        {active?.daysLeft !== undefined && (
+        <span className="text-indigo-600 tabular-nums">{percent(active?.readiness)}</span>
+        {active && active.daysLeft !== null && (
           <>
             <span className="text-stone-300">·</span>
-            <span className="text-stone-500">{active.daysLeft} дн.</span>
+            <span className="text-stone-500">{daysLeft(active.daysLeft)}</span>
           </>
         )}
       </button>
@@ -60,25 +60,31 @@ export function TopLeftMenu({
             <MenuRow
               key={target.id}
               active={target.id === active?.id}
-              disabled={!switchTo}
               onClick={() => {
-                switchTo?.(target.id);
+                if (target.id !== active?.id) switchTo(target.id);
                 close();
               }}
             >
               <span className="flex-1">
                 {target.name} {target.grade && <span className="text-stone-400">· {target.grade}</span>}
               </span>
-              {target.daysLeft !== undefined && <span className="text-[11px] text-stone-400">{target.daysLeft} дн.</span>}
+              {target.daysLeft !== null && <span className="text-[11px] text-stone-400">{daysLeft(target.daysLeft)}</span>}
             </MenuRow>
           ))}
           {!all.length && <div className="px-2.5 py-1 text-[12px] text-stone-400">Целей пока нет.</div>}
+          {error && (
+            <div role="alert" className="px-2.5 py-1 text-[12px] text-red-700">
+              {error}
+            </div>
+          )}
           <MenuList entries={[commandEntry(commands["target.new"])]} close={close} />
           <MenuSeparator />
           <div className="px-2.5 py-1.5 text-[12px] text-stone-500">
-            Готовность <b className="text-stone-800">{active ? `${active.readiness}%` : "—"}</b> · в повторении{" "}
+            Готовность <b className="text-stone-800">{percent(active?.readiness)}</b> · в повторении{" "}
             {active?.due ?? "—"}
-            {active?.interviewDate && <div className="text-stone-400">Собеседование {active.interviewDate}</div>}
+            {active?.interviewDate && (
+              <div className="text-stone-400">Собеседование {formatDate(active.interviewDate)}</div>
+            )}
           </div>
           <MenuSeparator />
           <MenuList entries={[{ label: "Настройки", run: openSettings }]} close={close} />
@@ -86,4 +92,18 @@ export function TopLeftMenu({
       )}
     </div>
   );
+}
+
+const percent = (value: number | null | undefined) => (value === null || value === undefined ? "—" : `${value}%`);
+
+const daysLeft = (days: number) => (days === 0 ? "сегодня" : `${days} дн.`);
+
+/** `2026-11-05` as «5 нояб. 2026 г.» in the Candidate's locale conventions. */
+function formatDate(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year ?? 0, (month ?? 1) - 1, day ?? 1).toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }

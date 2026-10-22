@@ -4,7 +4,8 @@ Plain-file product content the app loads into Agent sessions (ADR-0002), kept in
 outside code so the method can improve without code changes:
 
 - `persona.md`: the Interviewer persona, sent as the system prompt of every Agent session.
-- `skills/<activity>/`: one skill per Activity (`onboarding`, `research`, `interview`, `review`).
-- `references/`: shared references such as `rubric.md`, `modes.md`, and `market/ru.md`.
-
-Skills and references arrive with the Activity tickets.
+- `skills/<activity>/SKILL.md`: one skill per Activity (`onboarding` now; `research`, `interview`,
+  and `review` arrive with their Activities). The app sends the running Activity's skill to the
+  agent once per Agent session, as a hidden block `app://skill/<activity>`.
+- `references/`: shared references: `rubric.md` (the 0–3 Rubric), `modes.md` (training and mock),
+  and `market/ru.md` (the Market guide for the Russian-speaking market, a stub until Research).

@@ -4,10 +4,17 @@ import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
-import { apiPaths, type AgentsResponse, type ServerEvent } from "@prepare-to-interview/shared";
+import {
+  apiPaths,
+  type AddQuestionResponse,
+  type AgentsResponse,
+  type ServerEvent,
+  type TopicsResponse,
+} from "@prepare-to-interview/shared";
 import type { AgentDetector } from "../agent/detect.ts";
 import { UnknownNodeError, type Canvas } from "../canvas/canvas.ts";
 import { ChatBusyError, type Chat } from "../chat/chat.ts";
+import { DomainError, type Domain } from "../domain/domain.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
@@ -18,6 +25,7 @@ export interface AppDeps {
   allowedHosts: () => ReadonlySet<string>;
   canvas: Canvas;
   chat: Chat;
+  domain: Domain;
   settings: Settings;
   detectAgents: AgentDetector;
   events: EventBus;
@@ -71,6 +79,27 @@ export function createApp(deps: AppDeps): Hono {
     return c.body(null, 204);
   });
 
+  app.get(apiPaths.targets, (c) => c.json(deps.domain.targets()));
+  app.put(apiPaths.activeTarget, async (c) => {
+    const body = switchTargetRequest.safeParse(await readJson(c.req.raw));
+    if (!body.success) return c.json({ error: 'Send {"targetId": "<id>"}.' }, 400);
+    return domainResult(() => c.json(deps.domain.switchTarget(body.data.targetId)));
+  });
+  app.post(apiPaths.newTarget, (c) => {
+    if (deps.chat.busy) return c.json({ error: new ChatBusyError().message }, 409);
+    deps.domain.startActivity("onboarding");
+    return c.json({ message: deps.chat.send(newTargetMessage) }, 202);
+  });
+  app.get(apiPaths.topics, (c) => c.json({ topics: deps.domain.topicNames() } satisfies TopicsResponse));
+  app.post(apiPaths.questions, async (c) => {
+    const body = addQuestionRequest.safeParse(await readJson(c.req.raw));
+    if (!body.success) return c.json({ error: "Укажите тему (до 120 символов) и текст вопроса (до 4000 символов)." }, 400);
+    return domainResult(() => {
+      const question = deps.domain.addQuestion({ ...body.data, origin: "candidate" });
+      return c.json({ questionId: question.id, topic: question.topic } satisfies AddQuestionResponse, 201);
+    });
+  });
+
   app.get(apiPaths.agents, (c) =>
     c.json({ agents: deps.detectAgents(), settings: deps.settings.agentSettings() } satisfies AgentsResponse),
   );
@@ -110,6 +139,24 @@ export function createApp(deps: AppDeps): Hono {
 }
 
 const chatSendRequest = z.strictObject({ text: z.string().trim().min(1).max(20_000) });
+const switchTargetRequest = z.strictObject({ targetId: z.string().min(1) });
+const addQuestionRequest = z.strictObject({
+  topic: z.string().trim().min(1).max(120),
+  prompt: z.string().trim().min(1).max(4000),
+});
+
+/** What the Candidate says in the Chat when they press «Новая цель». */
+export const newTargetMessage = "Хочу добавить новую цель подготовки.";
+
+/** Answers a refused domain change with its message: 404 for an unknown record, 400 otherwise. */
+function domainResult(respond: () => Response): Response {
+  try {
+    return respond();
+  } catch (error) {
+    if (!(error instanceof DomainError)) throw error;
+    return Response.json({ error: error.message }, { status: error.kind === "not_found" ? 404 : 400 });
+  }
+}
 
 async function readJson(request: Request): Promise<unknown> {
   try {

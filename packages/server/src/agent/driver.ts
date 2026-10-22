@@ -27,6 +27,8 @@ export interface TurnInput {
   text: string;
   /** Hidden state block sent first in the turn (ACP resource `app://session-state`); never shown in the Chat. */
   hiddenState?: unknown;
+  /** Further hidden blocks after the state, such as the running Activity's skill; never shown in the Chat. */
+  context?: { uri: string; text: string }[];
 }
 
 export type ToolCallStatus = "pending" | "in_progress" | "completed" | "failed";

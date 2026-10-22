@@ -184,6 +184,22 @@ describe("ACP driver: turns and event normalization", () => {
     ]);
   });
 
+  it("sends context blocks such as the Activity's skill after the hidden state, before the text", async () => {
+    const { driver, requests } = setup("claude");
+    const session = await driver.startSession(config);
+    const skill = '<activity_skill name="onboarding">\n# Onboarding\n</activity_skill>';
+    await session.prompt(
+      { text: "Hi", hiddenState: { q: 1 }, context: [{ uri: "app://skill/onboarding", text: skill }] },
+      () => undefined,
+    );
+
+    expect(requests("session/prompt")[0]?.prompt).toEqual([
+      { type: "resource", resource: { uri: "app://session-state", mimeType: "application/json", text: '<session_state>{"q":1}</session_state>' } },
+      { type: "resource", resource: { uri: "app://skill/onboarding", mimeType: "text/markdown", text: skill } },
+      { type: "text", text: "Hi" },
+    ]);
+  });
+
   it.each([
     ["claude", "mcp__interview__record_attempt"],
     ["codex", "mcp.interview.record_attempt"],

@@ -7,6 +7,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { DomainError } from "../domain/domain.ts";
 import type { ToolDefinition } from "./tool.ts";
 
 /** Server name agents see as the tool namespace (`mcp__interview__…`, `interview_…`). */
@@ -66,7 +67,13 @@ function callTool(byName: Map<string, ToolDefinition>, name: string, args: unkno
     const issues = parsed.error.issues.map((issue) => `- ${issue.path.join(".") || "(input)"}: ${issue.message}`);
     return toolError(`Invalid input for ${tool.name}:\n${issues.join("\n")}`, tool.fixHint);
   }
-  const output = tool.output.parse(tool.run(parsed.data));
+  let output;
+  try {
+    output = tool.output.parse(tool.run(parsed.data));
+  } catch (error) {
+    if (error instanceof DomainError) return toolError(error.message, error.fixHint);
+    throw error;
+  }
   return { content: [{ type: "text", text: tool.summarize(output) }], structuredContent: output };
 }
 

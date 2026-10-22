@@ -14,6 +14,7 @@ import { Chat, type DriverProvider } from "./chat/chat.ts";
 import { loopbackHost } from "./config.ts";
 import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
+import { Domain } from "./domain/domain.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
@@ -35,6 +36,8 @@ export interface ServerOptions {
   detectAgents?: AgentDetector;
   /** Directory with the Interviewer content (`persona.md`); defaults to `interviewer/` in the repo. */
   interviewerDir?: string;
+  /** Clock for the domain core and the hidden state; tests pin it. */
+  now?: () => Date;
 }
 
 export interface RunningServer {
@@ -53,12 +56,16 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const events = new EventBus();
   const canvas = new Canvas(db, events);
   const settings = new Settings(db, events);
+  const now = options.now ?? (() => new Date());
+  const domain = new Domain(db, events, now);
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
   const mcpServers: McpServerConfig[] = [];
   const interviewer = new Interviewer({
     ...(options.interviewerDir && { contentDir: options.interviewerDir }),
+    domain,
     mcpServers: () => mcpServers,
+    now,
   });
   const drivers = cachedDrivers(options.drivers ?? acpDrivers(dataDir.root));
   const chat = new Chat({ db, events, settings, interviewer, drivers: drivers.get });
@@ -68,10 +75,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     allowedHosts: () => allowedHosts,
     canvas,
     chat,
+    domain,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
-    mcp: createMcpHandler(createTools(canvas), appVersion),
+    mcp: createMcpHandler(createTools({ canvas, domain, interviewer }), appVersion),
     clientDir: options.clientDir ?? defaultClientDir,
   });
 

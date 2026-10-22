@@ -301,7 +301,7 @@ class AcpSession implements AgentSession {
   }
 }
 
-/** The hidden state goes first, as an embedded resource where the agent supports it. */
+/** The hidden state and context blocks go first, as embedded resources where the agent supports it. */
 export function promptBlocks(input: TurnInput, embeddedContext: boolean): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [];
   if (input.hiddenState !== undefined) {
@@ -310,6 +310,13 @@ export function promptBlocks(input: TurnInput, embeddedContext: boolean): acp.Co
       embeddedContext
         ? { type: "resource", resource: { uri: sessionStateUri, mimeType: "application/json", text } }
         : { type: "text", text },
+    );
+  }
+  for (const block of input.context ?? []) {
+    blocks.push(
+      embeddedContext
+        ? { type: "resource", resource: { uri: block.uri, mimeType: "text/markdown", text: block.text } }
+        : { type: "text", text: block.text },
     );
   }
   blocks.push({ type: "text", text: input.text });

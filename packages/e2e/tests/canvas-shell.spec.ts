@@ -50,7 +50,7 @@ test("chrome matches variant A", async ({ page }) => {
   await page.getByRole("button", { name: "Меню" }).click();
   const topMenu = page.getByRole("menu", { name: "Меню" });
   await expect(topMenu.getByText("Цель подготовки")).toBeVisible();
-  await expect(topMenu.getByRole("menuitem", { name: "+ Новая цель" })).toBeDisabled();
+  await expect(topMenu.getByRole("menuitem", { name: "+ Новая цель" })).toBeEnabled();
   await topMenu.getByRole("menuitem", { name: "Настройки" }).click();
   const settings = page.getByRole("dialog", { name: "Настройки" });
   // The agent choice from the Chat ticket plugs into the settings slot.

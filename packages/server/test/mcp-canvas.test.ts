@@ -129,8 +129,8 @@ describe("demo MCP tool to live Canvas", () => {
     const client = await connectMcp(await start());
     const result = await client.callTool({ name: "record_attempt", arguments: {} });
     expect(result.isError).toBe(true);
-    expect((result.content as { text: string }[])[0]?.text).toBe(
-      'Unknown tool "record_attempt".\nFix: Call one of: demo_place_note.',
+    expect((result.content as { text: string }[])[0]?.text).toMatch(
+      /^Unknown tool "record_attempt"\.\nFix: Call one of: get_profile, .*demo_place_note\.$/,
     );
   });
 

@@ -12,6 +12,13 @@ describe("hidden state echoes", () => {
     expect(stripHiddenState(text)).toBe("My answer");
   });
 
+  it.each([
+    ["Claude", 'app://skill/onboarding\n<context ref="app://skill/onboarding">\n<activity_skill name="onboarding">\n# Onboarding\n</activity_skill>\n</context>Hi'],
+    ["OpenCode", '[app://skill/onboarding]\n<activity_skill name="onboarding">\n# Onboarding\n</activity_skill>\nHi'],
+  ])("strips an Activity skill echoed in the %s format", (_agent, text) => {
+    expect(stripHiddenState(text)).toBe("Hi");
+  });
+
   it("leaves ordinary text, including its spacing, untouched", () => {
     expect(stripHiddenState("  indented code\n")).toBe("  indented code\n");
   });

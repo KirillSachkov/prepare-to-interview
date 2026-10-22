@@ -32,14 +32,28 @@ export async function agentTurn(baseURL: string, turn: FakeTurn): Promise<void> 
 export const placeNote = (baseURL: string, title: string) =>
   agentTurn(baseURL, [{ callTool: { server: "interview", tool: "demo_place_note", arguments: { title } } }]);
 
+/** Creates a Preparation target through the MCP tool, as the Interviewer does in onboarding. */
+export const saveTarget = (baseURL: string, target: Record<string, unknown>) =>
+  agentTurn(baseURL, [{ callTool: { server: "interview", tool: "save_target", arguments: target } }]);
+
+/** Picks the agent as the Candidate does in settings; the e2e server answers with the fake driver. */
+export async function chooseAgent(baseURL: string): Promise<void> {
+  const res = await fetch(new URL(apiPaths.agentSettings, baseURL), {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ agent: "claude" }),
+  });
+  expect(res.status).toBe(200);
+}
+
 /** Opens the tokenized URL the way the Candidate does and waits for the Canvas. */
 export async function openCanvas(page: Page): Promise<void> {
   await page.goto(`/?${tokenQueryParam}=${token()}`);
   await expect(page.getByRole("toolbar", { name: "Панель инструментов" })).toBeVisible();
   const chat = page.locator('.react-flow__node[data-id="chat"]');
   await expect(chat).toBeVisible();
-  // With no agent chosen the Chat settles on its agent settings; until then its composer may hold focus.
-  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText("Агент для программирования");
+  // The Chat settles on its agent settings (no agent chosen) or its thread; until then its composer may hold focus.
+  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText(/Агент для программирования|на Claude Code/);
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });

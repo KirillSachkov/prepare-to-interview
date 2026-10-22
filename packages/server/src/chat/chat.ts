@@ -79,6 +79,11 @@ export class Chat {
     return { messages, busy: this.#turn !== undefined };
   }
 
+  /** True while an Interviewer reply is running. */
+  get busy(): boolean {
+    return this.#turn !== undefined;
+  }
+
   /** Stores the Candidate's message and starts the Interviewer's reply in the background. */
   send(text: string): ChatMessage {
     if (this.#closing) throw new ChatBusyError("The app is shutting down.");
@@ -128,7 +133,7 @@ export class Chat {
       if (turn.stopRequested) return;
       turn.prompting = live.session;
       const result = await live.session.prompt(
-        { text, hiddenState: this.#deps.interviewer.hiddenState() },
+        this.#deps.interviewer.turnInput(text, live.rowId),
         (event) => this.#onEvent(turn, live, event),
       );
       this.#finishReply(turn, result.stopReason === "cancelled" ? "cancelled" : "complete");

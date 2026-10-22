@@ -5,23 +5,7 @@ import {
   type AgentsResponse,
   type ChatSnapshot,
 } from "@prepare-to-interview/shared";
-
-// The browser authenticates with the HttpOnly cookie set when the tokenized URL was opened.
-
-async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
-  const res = await fetch(path, {
-    method: init.method ?? "GET",
-    credentials: "same-origin",
-    ...(init.body !== undefined && { headers: { "Content-Type": "application/json" }, body: JSON.stringify(init.body) }),
-  });
-  const text = await res.text();
-  const body = text ? (JSON.parse(text) as unknown) : undefined;
-  if (!res.ok) {
-    const message = (body as { error?: string } | undefined)?.error;
-    throw new Error(message ?? `Request failed: ${res.status}`);
-  }
-  return body as T;
-}
+import { request } from "../api.ts";
 
 export const fetchChat = () => request<ChatSnapshot>(apiPaths.chat);
 export const sendChatMessage = (text: string) => request<unknown>(apiPaths.chatMessages, { method: "POST", body: { text } });

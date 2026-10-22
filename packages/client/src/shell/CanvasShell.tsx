@@ -14,12 +14,13 @@ import { flowNodeTypes, nodeMenu, SetCollapsedContext, type FlowNode } from "../
 import { buildCommands, type Commands, type Tool } from "./commands.ts";
 import { ContextMenu, type OpenMenu } from "./ContextMenu.tsx";
 import { ControlPanel, type ControlPanelPopover } from "./ControlPanel.tsx";
-import { SettingsDialog, ShortcutsDialog } from "./dialogs.tsx";
+import { QuestionDialog, SettingsDialog, ShortcutsDialog } from "./dialogs.tsx";
 import { isTyping, matchesHotkey } from "./hotkeys.ts";
 import { commandEntry, type MenuEntry } from "./menu.ts";
 import { comingSoonLabel, cx, Kbd } from "./ui.tsx";
 import { useCanvasNodes } from "./useCanvasNodes.ts";
 import { usePersistentState } from "./usePersistentState.ts";
+import { startNewTarget } from "./target.ts";
 import { ZoomPill } from "./ZoomPill.tsx";
 
 /** Keeps fitted content clear of the floating toolbar and the bottom controls. */
@@ -27,7 +28,7 @@ const fitPadding = { top: "120px", bottom: "72px", left: "48px", right: "48px" }
 const fitOptions: FitViewOptions = { padding: fitPadding, maxZoom: 1 };
 const zoomDuration = { duration: 150 };
 
-type Dialog = "shortcuts" | "settings";
+type Dialog = "shortcuts" | "settings" | "question";
 
 export function CanvasShell() {
   const rf = useReactFlow<FlowNode>();
@@ -42,6 +43,11 @@ export function CanvasShell() {
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const showChat = () => {
+    setFocusRequest(chatNodeId);
+    setChatHidden(false);
+  };
+
   const commands: Commands = buildCommands({
     tool,
     setTool,
@@ -50,10 +56,7 @@ export function CanvasShell() {
     zen,
     toggleZen: () => setZen((z) => !z),
     chatHidden,
-    toggleChat: () => {
-      if (chatHidden) setFocusRequest(chatNodeId);
-      setChatHidden(!chatHidden);
-    },
+    toggleChat: () => (chatHidden ? showChat() : setChatHidden(true)),
     zoomIn: () => void rf.zoomIn(zoomDuration),
     zoomOut: () => void rf.zoomOut(zoomDuration),
     zoomReset: () => void rf.zoomTo(1, zoomDuration),
@@ -63,6 +66,13 @@ export function CanvasShell() {
       if (selected.length) void rf.fitView({ nodes: selected, padding: fitPadding, maxZoom: 1.2, duration: 300 });
     },
     openShortcuts: () => setDialog("shortcuts"),
+    newTarget: () => {
+      setPopover(null);
+      startNewTarget()
+        .then(showChat)
+        .catch(() => setNotice("Не удалось начать новую цель. Если Интервьюер ещё отвечает, дождитесь ответа или остановите его."));
+    },
+    addQuestion: () => setDialog("question"),
     escape: () => {
       setMenu(null);
       setDialog(null);
@@ -222,6 +232,15 @@ export function CanvasShell() {
         {menu && <ContextMenu menu={menu} close={() => setMenu(null)} />}
         {dialog === "shortcuts" && <ShortcutsDialog commands={commands} close={() => setDialog(null)} />}
         {dialog === "settings" && <SettingsDialog close={() => setDialog(null)} />}
+        {dialog === "question" && (
+          <QuestionDialog
+            close={() => setDialog(null)}
+            added={(topic) => {
+              setDialog(null);
+              setNotice(`Вопрос добавлен в банк, тема «${topic}»`);
+            }}
+          />
+        )}
       </div>
     </SetCollapsedContext>
   );

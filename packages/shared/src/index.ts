@@ -11,6 +11,16 @@ export const apiPaths = {
   chatStop: "/api/chat/stop",
   agents: "/api/agents",
   agentSettings: "/api/settings/agent",
+  /** GET a {@link TargetsResponse}. */
+  targets: "/api/targets",
+  /** PUT a {@link SwitchTargetRequest}. */
+  activeTarget: "/api/targets/active",
+  /** POST: starts onboarding for a new Preparation target and asks the Interviewer in the Chat. */
+  newTarget: "/api/targets/new",
+  /** GET the Topic names of the Question bank. */
+  topics: "/api/topics",
+  /** POST an {@link AddQuestionRequest}: the Candidate's own Question. */
+  questions: "/api/questions",
   mcp: "/mcp",
 } as const;
 
@@ -153,27 +163,75 @@ export type ServerEvent =
   /** Streamed text appended to a message. */
   | { type: "chat.delta"; messageId: string; text: string }
   | { type: "chat.busy"; busy: boolean }
-  | { type: "agent.settings"; settings: AgentSettings };
+  | { type: "agent.settings"; settings: AgentSettings }
+  /** Preparation targets or the active one changed. */
+  | { type: "targets.changed"; targets: TargetsResponse };
+
+// Preparation targets and the Question bank
+
+/** What the Control panel shows about one Preparation target; all numbers come from the server. */
+export interface TargetSummary {
+  id: string;
+  name: string;
+  role: string;
+  grade: string | null;
+  /** Local calendar date `YYYY-MM-DD`. */
+  interviewDate: string | null;
+  /** Calendar days until the interview date; `null` without a date or once it has passed. */
+  daysLeft: number | null;
+  /** Overall readiness 0–100; `null` until Attempts exist. */
+  readiness: number | null;
+  /** Questions Due for repetition; `null` until scheduling exists. */
+  due: number | null;
+}
+
+export interface TargetsResponse {
+  activeId: string | null;
+  targets: TargetSummary[];
+}
+
+export interface SwitchTargetRequest {
+  targetId: string;
+}
+
+export interface TopicsResponse {
+  topics: string[];
+}
+
+export interface AddQuestionRequest {
+  /** Topic name; a new Topic is created when the bank has none by that name. */
+  topic: string;
+  prompt: string;
+}
+
+export interface AddQuestionResponse {
+  questionId: string;
+  topic: string;
+}
 
 // Hidden state
 
 /** URI of the hidden state block sent first in every turn (ADR-0002). */
 export const sessionStateUri = "app://session-state";
 
+/** URI of the hidden block carrying an Activity's skill, sent once per Agent session. */
+export const skillUri = (activity: string) => `app://skill/${activity}`;
+
 const hiddenStatePatterns = [
   /<context ref="app:\/\/[^"]*">[\s\S]*?<\/context>/g,
   /<session_state>[\s\S]*?<\/session_state>/g,
   /\[app:\/\/[^\]\s]*\]/g,
-  /app:\/\/session-state/g,
+  /<activity_skill[^>]*>[\s\S]*?<\/activity_skill>/g,
+  /app:\/\/(?:session-state|skill\/[\w-]+)/g,
 ];
 
 /**
  * Removes echoes of the hidden state block from Chat text. Agents replay it on `session/load` in
  * their own formats: `<context ref="app://…">…</context>`, `[app://…]`, or bare
- * `<session_state>…</session_state>`.
+ * `<session_state>…</session_state>` and `<activity_skill>…</activity_skill>`.
  */
 export function stripHiddenState(text: string): string {
-  if (!text.includes("app://") && !text.includes("<session_state>")) return text;
+  if (!text.includes("app://") && !text.includes("<session_state>") && !text.includes("<activity_skill")) return text;
   let result = text;
   for (const pattern of hiddenStatePatterns) result = result.replace(pattern, "");
   return result === text ? text : result.trimStart();

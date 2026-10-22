@@ -67,6 +67,10 @@ export interface ShellControls {
   fitSelection: () => void;
   openShortcuts: () => void;
   escape: () => void;
+  /** Starts onboarding for a new Preparation target in the Chat. */
+  newTarget: () => void;
+  /** Opens the dialog for the Candidate's own Question. */
+  addQuestion: () => void;
 }
 
 export function buildCommands(c: ShellControls): Commands {
@@ -130,8 +134,8 @@ export function buildCommands(c: ShellControls): Commands {
       active: !c.chatHidden,
     },
     "quiz.start": { id: "quiz.start", label: "Квиз", group: "Инструменты", hotkey: letter("Q") },
-    "question.custom": { id: "question.custom", label: "Вставить свой вопрос", group: "Карточки" },
-    "target.new": { id: "target.new", label: "+ Новая цель", group: "Инструменты" },
+    "question.custom": { id: "question.custom", label: "Вставить свой вопрос", group: "Карточки", run: c.addQuestion },
+    "target.new": { id: "target.new", label: "+ Новая цель", group: "Инструменты", run: c.newTarget },
     "practice.submit": {
       id: "practice.submit",
       label: "Отправить подборку / ответить в моке",
