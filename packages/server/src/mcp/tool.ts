@@ -22,13 +22,3 @@ export function defineTool<Input extends z.ZodObject, Output extends z.ZodObject
 ): ToolDefinition {
   return tool;
 }
-
-/** A domain refusal the agent can act on, such as an unknown id. */
-export class ToolError extends Error {
-  readonly fixHint: string;
-
-  constructor(message: string, fixHint: string) {
-    super(message);
-    this.fixHint = fixHint;
-  }
-}

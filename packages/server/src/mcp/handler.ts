@@ -7,7 +7,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { ToolError, type ToolDefinition } from "./tool.ts";
+import type { ToolDefinition } from "./tool.ts";
 
 /** Server name agents see as the tool namespace (`mcp__interview__…`, `interview_…`). */
 export const mcpServerName = "interview";
@@ -66,13 +66,8 @@ function callTool(byName: Map<string, ToolDefinition>, name: string, args: unkno
     const issues = parsed.error.issues.map((issue) => `- ${issue.path.join(".") || "(input)"}: ${issue.message}`);
     return toolError(`Invalid input for ${tool.name}:\n${issues.join("\n")}`, tool.fixHint);
   }
-  try {
-    const output = tool.output.parse(tool.run(parsed.data));
-    return { content: [{ type: "text", text: tool.summarize(output) }], structuredContent: output };
-  } catch (error) {
-    if (error instanceof ToolError) return toolError(error.message, error.fixHint);
-    throw error;
-  }
+  const output = tool.output.parse(tool.run(parsed.data));
+  return { content: [{ type: "text", text: tool.summarize(output) }], structuredContent: output };
 }
 
 function toolError(message: string, fixHint: string): CallToolResult {

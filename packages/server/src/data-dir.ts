@@ -25,6 +25,12 @@ function loadOrCreateToken(file: string): string {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const token = crypto.randomBytes(32).toString("base64url");
-  fs.writeFileSync(file, token + "\n", { mode: 0o600 });
+  try {
+    fs.writeFileSync(file, token + "\n", { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    // Another process created the token first: use theirs so both print a working URL.
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return loadOrCreateToken(file);
+    throw error;
+  }
   return token;
 }

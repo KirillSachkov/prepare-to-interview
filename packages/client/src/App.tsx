@@ -44,6 +44,8 @@ export function App() {
         },
         // The only event so far is canvas.node_added; new kinds will need a switch here.
         onEvent: (event) => setNodes((current) => mergeNodes(current, [event.node])),
+        onDisconnect: () =>
+          setError("No connection to the app. Is it running? If it restarted, open the URL printed by `pnpm start`."),
       }),
     [],
   );

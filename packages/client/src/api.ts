@@ -8,10 +8,14 @@ export async function fetchCanvas(): Promise<CanvasSnapshot> {
   return (await res.json()) as CanvasSnapshot;
 }
 
-/** Subscribes to live server events, reconnecting after drops; `onOpen` runs on every (re)connect. */
+/**
+ * Subscribes to live server events, reconnecting after drops; `onOpen` runs on every (re)connect
+ * and `onDisconnect` whenever the channel is down.
+ */
 export function subscribeToEvents(handlers: {
   onOpen: () => void;
   onEvent: (event: ServerEvent) => void;
+  onDisconnect: () => void;
 }): () => void {
   let socket: WebSocket | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -24,7 +28,9 @@ export function subscribeToEvents(handlers: {
     socket.onopen = handlers.onOpen;
     socket.onmessage = (message: MessageEvent<string>) => handlers.onEvent(JSON.parse(message.data) as ServerEvent);
     socket.onclose = () => {
-      if (!stopped) retry = setTimeout(connect, 1000);
+      if (stopped) return;
+      handlers.onDisconnect();
+      retry = setTimeout(connect, 1000);
     };
   };
   connect();

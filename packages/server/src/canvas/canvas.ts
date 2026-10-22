@@ -37,7 +37,7 @@ export class Canvas {
   /** Stores a demo note, places it on the next free grid cell, and notifies live clients. */
   placeDemoNote(input: DemoNoteInput): CanvasNode {
     const node = this.#db.transaction((tx) => {
-      const placed = tx.select({ n: count() }).from(canvasLayout).get()?.n ?? 0;
+      const placed = tx.select({ placed: count() }).from(canvasLayout).get()?.placed ?? 0;
       const note = { id: crypto.randomUUID(), title: input.title, body: input.body, createdAt: new Date() };
       const layout = {
         nodeId: note.id,

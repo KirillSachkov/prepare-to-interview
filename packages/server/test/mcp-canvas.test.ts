@@ -30,8 +30,8 @@ async function canvas(server: RunningServer): Promise<CanvasSnapshot> {
   return (await res.json()) as CanvasSnapshot;
 }
 
-function openEvents(server: RunningServer) {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}${apiPaths.events}`, { headers: authHeaders(server) });
+function openEvents(server: RunningServer, headers: Record<string, string> = authHeaders(server)) {
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}${apiPaths.events}`, { headers });
   cleanups.push(() => ws.close());
   const received: ServerEvent[] = [];
   ws.on("message", (data: Buffer) => received.push(JSON.parse(data.toString()) as ServerEvent));
@@ -134,13 +134,23 @@ describe("demo MCP tool to live Canvas", () => {
     );
   });
 
-  it("refuses the live channel without the token", async () => {
+  it("opens the live channel for the browser cookie from its own origin", async () => {
     const server = await start();
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}${apiPaths.events}`);
-    const status = await new Promise<number>((resolve) => {
-      ws.once("unexpected-response", (_req, res) => resolve(res.statusCode ?? 0));
-      ws.once("open", () => resolve(101));
-    });
-    expect(status).toBe(401);
+    const login = await fetch(server.url, { redirect: "manual" });
+    const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const events = openEvents(server, { Cookie: cookie, Origin: `http://127.0.0.1:${server.port}` });
+    await events.opened;
+    const client = await connectMcp(server);
+    await client.callTool({ name: "demo_place_note", arguments: { title: "Via cookie" } });
+    expect(await events.next()).toMatchObject({ type: "canvas.node_added", node: { data: { title: "Via cookie" } } });
+  });
+
+  it.each([
+    ["without the token", {}, 401],
+    ["from a foreign origin", { Origin: "http://evil.example" }, 403],
+  ])("refuses the live channel %s", async (_case, extra: Record<string, string>, expected) => {
+    const server = await start();
+    const headers = expected === 403 ? { ...authHeaders(server), ...extra } : extra;
+    await expect(openEvents(server, headers).opened).rejects.toThrow(`upgrade rejected: ${expected}`);
   });
 });

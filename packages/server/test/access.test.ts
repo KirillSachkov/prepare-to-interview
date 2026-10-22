@@ -40,6 +40,13 @@ describe("access to the app server", () => {
     expect(url.hostname).toBe("127.0.0.1");
     expect(url.searchParams.get("token")).toBe(server.token);
     expect(server.token.length).toBeGreaterThanOrEqual(32);
+    // Nothing answers on another local interface address, only on loopback.
+    const lanAddress = Object.values(os.networkInterfaces())
+      .flat()
+      .find((a) => a && a.family === "IPv4" && !a.internal)?.address;
+    if (lanAddress) {
+      await expect(fetch(`http://${lanAddress}:${server.port}/`)).rejects.toThrow();
+    }
   });
 
   it("rejects requests without the token", async () => {
@@ -74,6 +81,19 @@ describe("access to the app server", () => {
     });
     expect(page.status).toBe(200);
     expect(await page.text()).toBe(testIndexHtml);
+  });
+
+  it("rejects browser requests from a foreign origin", async () => {
+    const server = await start();
+    const origin = new URL(server.url).origin;
+    const ok = await fetch(origin + apiPaths.canvas, { headers: { ...authHeaders(server), Origin: origin } });
+    expect(ok.status).toBe(200);
+    const evil = await fetch(origin + apiPaths.mcp, {
+      method: "POST",
+      headers: { ...authHeaders(server), Origin: "http://evil.example" },
+      body: "{}",
+    });
+    expect(evil.status).toBe(403);
   });
 
   it("rejects requests addressed to a foreign host name", async () => {
