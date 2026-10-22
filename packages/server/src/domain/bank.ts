@@ -290,8 +290,8 @@ export class Bank {
   }
 
   /**
-   * The Proposed items a review request picks now, before approving a Question pulls in its
-   * Topic's proposal: what the Candidate confirms when the Interviewer asks to review.
+   * The Proposed items a review request picks now, with the Topic proposals that approving its
+   * Questions also approves: what the Candidate confirms when the Interviewer asks to review.
    */
   selection(request: ReviewRequest): { topics: { id: string; name: string }[]; questions: { id: string; prompt: string }[] } {
     return this.#db.transaction((tx) => {
