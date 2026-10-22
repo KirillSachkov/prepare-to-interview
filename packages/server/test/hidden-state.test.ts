@@ -19,6 +19,13 @@ describe("hidden state echoes", () => {
     expect(stripHiddenState(text)).toBe("Hi");
   });
 
+  it.each([
+    ["Claude", 'app://context/card/c1\n<context ref="app://context/card/c1">\n<app_context name="card">\n{"score": 2}\n</app_context>\n</context>Hi'],
+    ["OpenCode", '[app://context/practice-set/s1]\n<app_context name="practice_result">\n{"score": 2}\n</app_context>\nHi'],
+  ])("strips app facts echoed in the %s format", (_agent, text) => {
+    expect(stripHiddenState(text)).toBe("Hi");
+  });
+
   it("leaves ordinary text, including its spacing, untouched", () => {
     expect(stripHiddenState("  indented code\n")).toBe("  indented code\n");
   });

@@ -6,6 +6,9 @@ import { GradingError, type Grader } from "./grader.ts";
 /** Open answers graded at the same time; each runs in its own Grader session. */
 const parallelGradings = 2;
 
+/** How long closing waits for running gradings before the drivers stop the agents. */
+const closeTimeoutMs = 5000;
+
 const interruptedMessage = "Проверка прервалась, когда приложение остановилось. Проверьте ответ ещё раз.";
 
 /**
@@ -44,10 +47,13 @@ export class PracticeRunner {
     while (this.#running.size) await Promise.all([...this.#running]);
   }
 
+  /** Stops taking jobs; a grading still running after the timeout is left to the driver shutdown. */
   async close(): Promise<void> {
     this.#closing = true;
     this.#queue.length = 0;
-    await this.idle();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([this.idle(), new Promise((resolve) => (timer = setTimeout(resolve, closeTimeoutMs)))]);
+    clearTimeout(timer);
   }
 
   #enqueue(jobs: GradingJob[]): void {
