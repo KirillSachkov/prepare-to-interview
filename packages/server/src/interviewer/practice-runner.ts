@@ -23,6 +23,9 @@ export class PracticeRunner {
   readonly #running = new Set<Promise<void>>();
   /** Set once closing gave up waiting: the database may be gone, so late verdicts are dropped. */
   #stopped = false;
+  /** Jobs taken from the queue whose verdict is not recorded yet. */
+  #inFlight = 0;
+  readonly #settledListeners: (() => void)[] = [];
 
   constructor(options: { practice: Practice; grader: Grader; chat: Chat }) {
     this.#practice = options.practice;
@@ -41,6 +44,16 @@ export class PracticeRunner {
     const { node, jobs } = this.#practice.check(cardId);
     this.#enqueue(jobs);
     return node;
+  }
+
+  /** True while an open answer is queued for the Grader or being graded. */
+  get grading(): boolean {
+    return this.#queue.length > 0 || this.#inFlight > 0;
+  }
+
+  /** Runs after each grading job ends, recorded or failed. */
+  onSettled(listener: () => void): void {
+    this.#settledListeners.push(listener);
   }
 
   /** Resolves once no grading is queued or running. */
@@ -67,6 +80,7 @@ export class PracticeRunner {
 
   async #drain(): Promise<void> {
     for (let job = this.#queue.shift(); job; job = this.#queue.shift()) {
+      this.#inFlight++;
       try {
         const grade = await this.#grader.grade(job);
         // A verdict that arrives while closing is still worth keeping.
@@ -75,7 +89,10 @@ export class PracticeRunner {
         if (this.#stopped) return;
         const message = error instanceof GradingError ? error.message : "Не удалось проверить ответ. Попробуйте ещё раз.";
         this.#practice.gradingFailed(job.cardId, message);
+      } finally {
+        this.#inFlight--;
       }
+      if (!this.#stopped) for (const listener of this.#settledListeners) listener();
     }
   }
 }

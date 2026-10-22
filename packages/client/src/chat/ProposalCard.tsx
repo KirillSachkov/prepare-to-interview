@@ -1,12 +1,12 @@
-// Memory updates the Interviewer proposed in a review: the app saves them to the Candidate profile
+// Candidate profile and Decision log updates the Interviewer proposed in a review: the app saves them to the Candidate profile
 // and the Decision log only when the Candidate presses «Сохранить».
 import { useState } from "react";
-import type { MemoryProposalView } from "@prepare-to-interview/shared";
-import { answerProposal } from "../history/history-api.ts";
+import type { ReviewProposalView } from "@prepare-to-interview/shared";
+import { answerProposal } from "./chat-api.ts";
 
 const settledLabel = { accepted: "Сохранено", declined: "Не сохранено" } as const;
 
-export function ProposalCard({ proposal }: { proposal: MemoryProposalView }) {
+export function ProposalCard({ proposal }: { proposal: ReviewProposalView }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const answer = (accept: boolean) => {

@@ -1,4 +1,4 @@
-// Continuity on the Canvas (ticket #9): the review after a graded set proposes memory updates the
+// Continuity on the Canvas (ticket #9): the review after a graded set proposes Candidate profile and Decision log updates the
 // Candidate confirms in the Chat, and older result Cards move to history, reachable from the
 // Control panel menu and the toolbar's «Ещё» menu.
 import type { Page } from "@playwright/test";
@@ -22,7 +22,7 @@ test.beforeEach(async ({ page, baseURL }) => {
   await openCanvas(page);
 });
 
-test("the review proposes memory updates that are saved only on confirmation", async ({ page, baseURL }) => {
+test("the review proposes Candidate profile and Decision log updates that are saved only on confirmation", async ({ page, baseURL }) => {
   await placeQuiz(baseURL!, "e2e-review квиз");
   await answerQuiz(baseURL!, "e2e-review квиз");
   await expect(chat(page)).toContainText("Квиз проверен: «e2e-review квиз»");
@@ -41,10 +41,13 @@ test("older result Cards move to history, reachable from the menu and «Ещё»
     await answerQuiz(baseURL!, title);
   }
   await placeQuiz(baseURL!, "История: третий");
-  await expect(page.locator(".react-flow__node-practice_set").filter({ hasText: "История: третий" })).toHaveCount(1);
-  await page.keyboard.press("Shift+Digit1");
+  // Off-screen nodes are not rendered: fit all until the live Canvas shows the latest result Card.
   const sets = page.locator(".react-flow__node-practice_set");
-  await expect(sets.filter({ hasText: "История: второй" })).toContainText("уйдёт в историю сам");
+  await expect(async () => {
+    await page.keyboard.press("Shift+Digit1");
+    await expect(sets.filter({ hasText: "История: второй" })).toContainText("уйдёт в историю сам", { timeout: 1000 });
+    await expect(sets.filter({ hasText: "История: третий" })).toHaveCount(1, { timeout: 1000 });
+  }).toPass();
   await expect(sets.filter({ hasText: "История: первый" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Меню" }).click();

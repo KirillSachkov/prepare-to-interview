@@ -62,7 +62,7 @@ export class Progress {
    * Rebuilds the Question's Leitner box from its Attempts that count, oldest first, such as after
    * a corrected grade; the Due date counts from the latest of them.
    */
-  reschedule(tx: Tx, questionId: string): void {
+  reschedule(tx: Tx, questionId: string, at: Date): void {
     const rows = tx
       .select({ status: attempts.status, score: attempts.score, createdAt: attempts.createdAt })
       .from(attempts)
@@ -73,7 +73,7 @@ export class Progress {
     if (!last) return;
     let box: number | undefined;
     for (const r of rows) box = nextBox(box, r.status === "skipped" ? { skipped: true } : { score: r.score ?? 0 });
-    const row = { questionId, box: box ?? 1, dueOn: dueOn(localDate(last.createdAt), box ?? 1), updatedAt: new Date() };
+    const row = { questionId, box: box ?? 1, dueOn: dueOn(localDate(last.createdAt), box ?? 1), updatedAt: at };
     tx.insert(questionSchedule).values(row).onConflictDoUpdate({ target: questionSchedule.questionId, set: row }).run();
   }
 
@@ -194,4 +194,3 @@ export class Progress {
     };
   }
 }
-

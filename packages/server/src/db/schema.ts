@@ -63,7 +63,7 @@ export const chatMessages = sqliteTable("chat_messages", {
   agentSessionId: text("agent_session_id").references(() => agentSessions.id),
   /** The Card a message is about, such as the Candidate's «Обсудить» on a Card. */
   cardId: text("card_id"),
-  /** Memory updates the message asks the Candidate to confirm. */
+  /** Candidate profile and Decision log updates the message asks the Candidate to confirm. */
   proposalId: text("proposal_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /** Insertion order; createdAt can tie within a millisecond. */
@@ -306,10 +306,10 @@ export const questionSchedule = sqliteTable("question_schedule", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
-// Continuity (ADR-0002): memory updates the Interviewer proposes in a review.
+// Continuity (ADR-0002): Candidate profile and Decision log updates the Interviewer proposes in a review.
 
-export const memoryProposalStatuses = ["pending", "accepted", "declined"] as const;
-export type MemoryProposalStatus = (typeof memoryProposalStatuses)[number];
+export const reviewProposalStatuses = ["pending", "accepted", "declined"] as const;
+export type ReviewProposalStatus = (typeof reviewProposalStatuses)[number];
 
 export interface ProposedProfile {
   experience?: string;
@@ -328,13 +328,13 @@ export interface ProposedDecision {
  * Candidate profile and Decision log updates the Interviewer proposed at the end of an Agent
  * session; the app saves them only once the Candidate confirms in the Chat.
  */
-export const memoryProposals = sqliteTable("memory_proposals", {
+export const reviewProposals = sqliteTable("review_proposals", {
   id: text("id").primaryKey(),
   agentSessionId: text("agent_session_id").references(() => agentSessions.id),
   targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
   profile: text("profile", { mode: "json" }).$type<ProposedProfile>(),
   decisions: text("decisions", { mode: "json" }).$type<ProposedDecision[]>().notNull(),
-  status: text("status", { enum: memoryProposalStatuses }).notNull(),
+  status: text("status", { enum: reviewProposalStatuses }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   settledAt: integer("settled_at", { mode: "timestamp_ms" }),
 });

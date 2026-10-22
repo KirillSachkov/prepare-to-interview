@@ -4,6 +4,7 @@ import { appContextUri, skillUri } from "@prepare-to-interview/shared";
 import type { AllowedBuiltin, McpServerConfig, SessionConfig, TurnInput } from "../agent/driver.ts";
 import type { ActivityKind } from "../db/schema.ts";
 import type { Domain } from "../domain/domain.ts";
+import { callerHeader } from "../mcp/tool.ts";
 import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
 
 export const defaultContentDir = fileURLToPath(new URL("../../../../interviewer", import.meta.url));
@@ -128,7 +129,8 @@ export class Interviewer {
     return {
       persona: this.#persona,
       allowedBuiltins: this.allowedBuiltins,
-      mcpServers: this.#mcpServers(),
+      // Marks the Chat's tool calls, which end_session and the review rules act on.
+      mcpServers: this.#mcpServers().map((server) => ({ ...server, headers: [...server.headers, { name: callerHeader, value: "chat" }] })),
       ...(model && { model }),
     };
   }

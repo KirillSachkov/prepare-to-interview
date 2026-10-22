@@ -22,7 +22,7 @@ const grader: FakeResponder = (config, input) => {
   const verdict = { score: 2, quote, right: "Ключевая идея названа.", gap: "Не хватает проверки на метриках." };
   return [{ event: { type: "message_chunk", text: JSON.stringify(verdict) } }];
 };
-/** A graded Practice set with this in its title gets a review that proposes memory updates. */
+/** A graded Practice set with this in its title gets a review that proposes Candidate profile and Decision log updates. */
 const reviewedTitle = "e2e-review";
 const review: FakeTurn = [
   { event: { type: "message_chunk", text: "Сильная сторона — тесты. Слабое место — метрики. Приоритет: ретривер." } },

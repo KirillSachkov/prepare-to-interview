@@ -28,8 +28,8 @@ import {
   type RevealMode,
   type RubricAnchors,
 } from "../db/schema.ts";
-import { checkTest, correctOptions, hintCap, maxHintRungs, maxScore } from "./arithmetic.ts";
-import { DomainError, languages, localDate, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
+import { checkTest, correctOptions, hintCap, localDate, maxHintRungs, maxScore } from "./arithmetic.ts";
+import { DomainError, languages, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
 import type { Tx } from "./progress.ts";
 
 export interface PlaceSetInput {
@@ -122,7 +122,7 @@ type QuestionRow = typeof questions.$inferSelect;
 type AttemptRow = typeof attempts.$inferSelect;
 
 /** A graded Practice set that left the Canvas for history. */
-export interface HistoryEntry {
+export interface ArchivedSet {
   id: string;
   gradedAt: Date;
   archivedAt: Date;
@@ -135,6 +135,15 @@ export interface GradeCorrection {
   reason: string;
   gap?: string | undefined;
   strengths?: string | undefined;
+}
+
+export interface CorrectedGrade {
+  cardId: string;
+  questionId: string;
+  topic: string;
+  previous: number;
+  score: number;
+  maxScore: number;
 }
 
 /** Server-side width estimates for placing the next node to the right; the client renders these widths. */
@@ -254,7 +263,7 @@ export class Practice {
   }
 
   /** Graded Practice sets in history, most recently graded first. */
-  history(limit = 50): HistoryEntry[] {
+  history(limit = 50): ArchivedSet[] {
     return this.#db
       .select()
       .from(practiceSets)
@@ -481,16 +490,20 @@ export class Practice {
   }
 
   /**
-   * Corrects the grade of the Card's latest Attempt after the Candidate disputed it and the
+   * Corrects the grade of the Card's counting (first) Attempt after the Candidate disputed it and the
    * Interviewer agreed. The Hint ladder cap still applies; the Leitner schedule is replayed and
    * Mastery follows, since it is read from Attempts. Works for sets in history too.
    */
-  correctGrade(cardId: string, correction: GradeCorrection): { cardId: string; questionId: string; topic: string; previous: number; score: number; maxScore: number } {
+  correctGrade(cardId: string, correction: GradeCorrection): CorrectedGrade {
     const card = this.#card(cardId);
     this.#liveSet(card.setId);
-    const attempt = card.attemptId ? this.#attempt(card.attemptId) : undefined;
+    // The Card's first Attempt is the one that counts for Mastery, Leitner, and the set's result.
+    const attempt = this.#firstAttempts([cardId]).get(cardId);
     if (!attempt || attempt.status !== "graded" || attempt.score === null) {
-      throw new DomainError("This Card has no graded Attempt to correct.", "Only a graded open answer can be corrected; a Skipped Card has no score.");
+      throw new DomainError(
+        "This Card has no graded Attempt that counts.",
+        "Only a graded open answer can be corrected; a Skipped Card has no score, and a retry after feedback does not count.",
+      );
     }
     if (attempt.gradedBy !== "grader") {
       throw new DomainError("Test Cards are checked by the app against their options; their grade cannot be disputed.", "Explain the correct options instead of changing the grade.");
@@ -517,7 +530,7 @@ export class Practice {
         })
         .where(eq(attempts.id, attempt.id))
         .run();
-      if (!attempt.retry) this.#domain.progress.reschedule(tx, attempt.questionId);
+      if (!attempt.retry) this.#domain.progress.reschedule(tx, attempt.questionId, now);
     });
     if (!this.#set(card.setId).archivedAt) this.#changed(card.setId);
     this.#domain.publishTargets();

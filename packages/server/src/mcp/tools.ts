@@ -15,7 +15,7 @@ import type { Practice } from "../domain/practice.ts";
 import type { Continuity } from "../interviewer/continuity.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
 import { continuityTools, refuseDuringReview } from "./continuity-tools.ts";
-import { defineTool, type ToolDefinition } from "./tool.ts";
+import { defineTool, shortText, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
   domain: Domain;
@@ -24,7 +24,6 @@ export interface ToolDeps {
   continuity: Continuity;
 }
 
-const shortText = (max: number) => z.string().trim().min(1).max(max);
 const topicName = shortText(120).describe("Topic name as the Market names it, such as \"PostgreSQL indexes\".");
 const calendarDate = z.iso.date().describe("Local calendar date YYYY-MM-DD.");
 
@@ -222,8 +221,8 @@ export function createTools({ domain, practice, interviewer, continuity }: ToolD
       output: profileFields,
       fixHint:
         'Pass any of {"experience": "...", "stack": ["..."], "strengths": ["..."], "weak_spots": ["..."], "preferences": "...", "calibration": [{"topic": "...", "level": 0-3, "note": "..."}]} and no other fields.',
-      run: (input) => {
-        refuseDuringReview(domain);
+      run: (input, context) => {
+        refuseDuringReview(domain, context);
         const profile = domain.saveProfile({
           ...(input.experience !== undefined && { experience: input.experience }),
           ...(input.stack && { stack: input.stack }),
@@ -301,8 +300,8 @@ export function createTools({ domain, practice, interviewer, continuity }: ToolD
       }),
       output: z.strictObject({ decision_id: z.string(), target_id: z.string().nullable() }),
       fixHint: 'Pass {"decision": "<what was agreed>", "reason": "<optional>", "target_id": "<optional>"}.',
-      run: (input) => {
-        refuseDuringReview(domain);
+      run: (input, context) => {
+        refuseDuringReview(domain, context);
         const d = domain.recordDecision({
           decision: input.decision,
           ...(input.reason !== undefined && { reason: input.reason }),

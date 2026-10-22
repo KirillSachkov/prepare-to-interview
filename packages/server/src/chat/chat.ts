@@ -6,7 +6,7 @@ import {
   type ChatMessage,
   type ChatRole,
   type ChatSnapshot,
-  type MemoryProposalView,
+  type ReviewProposalView,
 } from "@prepare-to-interview/shared";
 import type { AgentDriver, AgentEvent, AgentSession } from "../agent/driver.ts";
 import { describeAgentError, toAgentError } from "../agent/errors.ts";
@@ -33,8 +33,8 @@ export interface ChatDeps {
   drivers: DriverProvider;
   /** The prompt of a Card a message refers to, for the chip the Chat shows. */
   cardPrompt?: (cardId: string) => string | undefined;
-  /** The memory proposal a message asks the Candidate to confirm. */
-  proposal?: (proposalId: string) => MemoryProposalView | undefined;
+  /** The review proposal a message asks the Candidate to confirm. */
+  proposal?: (proposalId: string) => ReviewProposalView | undefined;
   /** Decides when the Chat's Agent session ends and a fresh one starts (ADR-0002). */
   sessions?: SessionPolicy;
   /** The app clock for Agent session start and end, which session rotation compares by day. */
@@ -54,6 +54,24 @@ export interface SessionPolicy {
 export interface SendOptions {
   /** The Card the message is about («Обсудить»); the Interviewer receives its context hidden. */
   cardId?: string;
+}
+
+/** A turn the app starts without a Candidate message, such as the review at an Activity boundary. */
+export interface AppTurn {
+  /** What only the agent receives. */
+  text: string;
+  /** Checked when the turn would start; a turn no longer wanted is dropped. */
+  wanted?: () => boolean;
+  /** Runs once the turn ended, however it ended: reply, stop, or agent error. */
+  done?: () => void;
+}
+
+/** What a stored message points at besides its text. */
+interface MessageRefs {
+  /** The Agent session whose reply this is. */
+  agentSessionId?: string;
+  cardId?: string;
+  proposalId?: string;
 }
 
 interface LiveSession {
@@ -90,7 +108,7 @@ export class Chat {
   #live: LiveSession | undefined;
   #turn: Turn | undefined;
   /** App-started turns waiting for the running turn to end. */
-  readonly #pending: string[] = [];
+  readonly #pending: AppTurn[] = [];
   #closing = false;
 
   constructor(deps: ChatDeps) {
@@ -114,8 +132,8 @@ export class Chat {
   send(text: string, options: SendOptions = {}): ChatMessage {
     if (this.#closing) throw new ChatBusyError("The app is shutting down.");
     if (this.#turn) throw new ChatBusyError();
-    const message = this.#insert("candidate", text, "complete", undefined, options.cardId);
-    this.#begin(text, options, false);
+    const message = this.#insert("candidate", text, "complete", { ...(options.cardId && { cardId: options.cardId }) });
+    this.#begin(text, options);
     return message;
   }
 
@@ -123,10 +141,15 @@ export class Chat {
    * Starts an Interviewer turn without a Candidate message, such as the review at an Activity
    * boundary; `text` reaches only the agent. Runs after the current turn when one is running.
    */
-  prompt(text: string): void {
+  prompt(turn: AppTurn): void {
     if (this.#closing) return;
-    if (this.#turn) this.#pending.push(text);
-    else this.#begin(text, {}, true);
+    this.#pending.push(turn);
+    if (!this.#turn) this.#next();
+  }
+
+  /** The Agent session row of the running turn; tools called by the Chat's agent act on it. */
+  get turnSessionId(): string | undefined {
+    return this.#turn ? this.#live?.rowId : undefined;
   }
 
   /**
@@ -134,7 +157,7 @@ export class Chat {
    * does not see it in the Chat; the Interviewer orchestration passes the facts on as hidden context.
    */
   post(text: string, options: { proposalId?: string } = {}): ChatMessage {
-    return this.#insert("interviewer", text, "complete", undefined, undefined, options.proposalId);
+    return this.#insert("interviewer", text, "complete", options);
   }
 
   /** Tells live clients a stored message changed, such as a proposal the Candidate confirmed. */
@@ -167,16 +190,25 @@ export class Chat {
     await this.#dropLive();
   }
 
-  #begin(text: string, options: SendOptions, fromApp: boolean): void {
+  #begin(text: string, options: SendOptions, app?: AppTurn): void {
     const turn: Turn = { stopRequested: false, savedAt: Date.now(), done: Promise.resolve() };
     this.#turn = turn;
     this.#deps.events.publish({ type: "chat.busy", busy: true });
-    turn.done = this.#run(turn, text, options, fromApp).finally(() => {
+    turn.done = this.#run(turn, text, options, app !== undefined).finally(() => {
       this.#turn = undefined;
+      app?.done?.();
       this.#deps.events.publish({ type: "chat.busy", busy: false });
-      const next = this.#pending.shift();
-      if (next !== undefined && !this.#closing) this.#begin(next, {}, true);
+      this.#next();
     });
+  }
+
+  /** Starts the next waiting app turn that is still wanted. */
+  #next(): void {
+    for (let app = this.#pending.shift(); app && !this.#closing; app = this.#pending.shift()) {
+      if (app.wanted && !app.wanted()) continue;
+      this.#begin(app.text, {}, app);
+      return;
+    }
   }
 
   async #run(turn: Turn, text: string, options: SendOptions, fromApp: boolean): Promise<void> {
@@ -229,6 +261,7 @@ export class Chat {
         // Login, limit, or a missing agent would fail a new session too.
         if (agentError.kind !== "failed") throw agentError;
         this.#endSession(stored.id, "load_failed");
+        this.#deps.sessions?.ended(stored.id, "load_failed");
       }
     }
     const session = await driver.startSession(config);
@@ -321,7 +354,7 @@ export class Chat {
 
   /** The Interviewer's reply message, created on the first streamed event. */
   #reply(turn: Turn, live: LiveSession): ChatMessage {
-    turn.reply ??= this.#insert("interviewer", "", "streaming", live.rowId);
+    turn.reply ??= this.#insert("interviewer", "", "streaming", { agentSessionId: live.rowId });
     return turn.reply;
   }
 
@@ -338,14 +371,8 @@ export class Chat {
     this.#deps.events.publish({ type: "chat.message", message: visible(reply) });
   }
 
-  #insert(
-    role: ChatRole,
-    text: string,
-    status: ChatMessage["status"],
-    agentSessionId?: string,
-    cardId?: string,
-    proposalId?: string,
-  ): ChatMessage {
+  #insert(role: ChatRole, text: string, status: ChatMessage["status"], refs: MessageRefs = {}): ChatMessage {
+    const { agentSessionId, cardId, proposalId } = refs;
     const card = this.#card(cardId ?? null);
     const proposal = proposalId ? this.#deps.proposal?.(proposalId) : undefined;
     const message: ChatMessage = {

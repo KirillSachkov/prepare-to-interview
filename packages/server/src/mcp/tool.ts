@@ -1,6 +1,21 @@
 import { z } from "zod";
 
 /**
+ * Header that marks MCP requests from the Chat's Agent session; hidden sessions such as the Grader
+ * or Research do not send it.
+ */
+export const callerHeader = "X-Interview-Caller";
+
+/** Who is calling a tool, from the request. */
+export interface ToolContext {
+  /** True for the Chat's Agent session. */
+  fromChat: boolean;
+}
+
+/** Trimmed, non-empty text of at most `max` characters. */
+export const shortText = (max: number) => z.string().trim().min(1).max(max);
+
+/**
  * One MCP tool the Interviewer may call. Input and output are strict schemas: unknown fields are
  * rejected, and every failure returns `isError` with a hint on how to fix the call.
  */
@@ -12,7 +27,7 @@ export interface ToolDefinition<Input extends z.ZodObject = z.ZodObject, Output 
   output: Output;
   /** Shown after validation errors: what a correct call looks like. */
   fixHint: string;
-  run: (input: z.output<Input>) => z.input<Output>;
+  run: (input: z.output<Input>, context: ToolContext) => z.input<Output>;
   /** Concise, readable text for the agent; structured output carries the data. */
   summarize: (output: z.output<Output>) => string;
 }

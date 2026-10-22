@@ -1,5 +1,5 @@
 // Continuity at the server seam (ADR-0002, ADR-0004): Agent session rotation at Activity
-// boundaries, on a new day, and on the usage threshold; the review and its memory proposals; the
+// boundaries, on a new day, and on the usage threshold; the review and its proposals; the
 // Briefing; auto-tidy into history; and disputed grade correction.
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -177,7 +177,7 @@ const briefingOf = (input: TurnInput | undefined) => {
 };
 
 describe("Agent session rotation", () => {
-  it("reviews a graded Practice set in its session, saves memory only on confirmation, and continues in a fresh session from a Briefing", async () => {
+  it("reviews a graded Practice set in its session, saves profile and Decision log updates only on confirmation, and continues in a fresh session from a Briefing", async () => {
     const h = await withTarget(
       await start(
         [
@@ -249,7 +249,7 @@ describe("Agent session rotation", () => {
     expect(contextUris(h.driver().prompts[3])).toEqual([]);
   });
 
-  it("drops a declined proposal and refuses direct memory saves during the review", async () => {
+  it("drops a declined proposal and refuses direct profile and Decision log saves during the review", async () => {
     const h = await withTarget(
       await start(
         [
@@ -289,6 +289,50 @@ describe("Agent session rotation", () => {
     const [summary] = briefing.recent_summaries as { summary: string }[];
     expect(summary?.summary).toMatch(/^The app ended the session \(activity:practice_set\) without an Interviewer summary\. Activities: practice_set \(completed\): Practice set "Первая"/);
     expect(contextUris(h.driver().prompts[1])).toEqual(["app://context/briefing", skillUri("practice_set")]);
+  });
+
+  it("closes a review whose turn failed, so the boundary rotation still happens", async () => {
+    const h = await withTarget(
+      await start([[reply("Привет.")], [{ fail: new Error("agent crashed") }], [reply("Продолжим.")]], { scriptReviews: true }),
+    );
+    await say(h.server, "Привет");
+    await practise(h, "Подборка");
+    await settledChat(h.server);
+    expect((await h.call("get_profile")).data.activity).toBeNull();
+    await say(h.server, "Что дальше?");
+    // The failed review never delivered the grading result, so the fresh session gets it.
+    expect(contextUris(h.driver().prompts[2])).toEqual(["app://context/briefing", expect.stringMatching(/^app:\/\/context\/practice-set\//)]);
+  });
+
+  it("drops a queued review once another Activity took over, and never rotates mid Practice set", async () => {
+    const h = await start([
+      [reply("Расскажите о себе.")],
+      [
+        tool("save_target", { role: "AI engineer", topics: [{ name: "Evals", priority: "high" }] }),
+        tool("finish_activity", { status: "completed", summary: "AI engineer target." }),
+        tool("place_practice_set", { title: "Первая", cards: [singleEvals] }),
+        reply("Цель готова, подборка на холсте."),
+      ],
+      [reply("Ответьте на карточку.")],
+    ]);
+    await say(h.server, "Привет");
+    await say(h.server, "AI engineer");
+    // The review queued at the onboarding boundary was dropped: the Practice set took over.
+    expect((await h.call("get_profile")).data.activity).toMatchObject({ kind: "practice_set" });
+    await say(h.server, "Что дальше?");
+    expect(h.driver().prompts.map((p) => p.text)).toEqual(["Привет", "AI engineer", "Что дальше?"]);
+    // The boundary rotation waits until the set is submitted.
+    expect(chatSessions(h)).toEqual(["start"]);
+  });
+
+  it("acts on end_session and the review rules only for the Chat's own tool calls", async () => {
+    const h = await withTarget(await start([[reply("Привет.")]]));
+    await say(h.server, "Привет");
+    // A hidden session (no Chat marker) cannot end the Chat's session.
+    const ended = await h.call("end_session", { summary: "Not mine." });
+    expect(ended.isError).toBe(true);
+    expect(ended.text).toMatch(/^Only the Chat's Agent session can end itself\./);
+    expect((await h.call("save_profile", { weak_spots: ["Метрики"] })).isError).toBe(false);
   });
 
   it("rotates on a new day, also after a restart, and keeps one continuous Chat", async () => {
@@ -396,6 +440,25 @@ describe("Disputed grades", () => {
     // Test Cards are checked by the app; a score above the Hint ladder cap is refused.
     expect((await h.call("correct_grade", { card_id: cardIds[1], score: 0, reason: "Нет." })).text).toMatch(/^Test Cards are checked by the app/);
     expect((await h.call("correct_grade", { card_id: cardIds[0], score: 3, reason: "Снова." })).text).toMatch(/already has score 3/);
+  });
+
+  it("corrects the Attempt that counts, not a later retry", async () => {
+    const h = await withTarget(await start());
+    h.scores.set("500", 1);
+    h.scores.set("перекрытием", 3);
+    const { cardIds } = await practise(h, "Подборка", "Чанки по 500 токенов.");
+    const cardId = cardIds[0]!;
+    await api(h.server, cardPaths.retry(cardId));
+    await api(h.server, cardPaths.draft(cardId), { method: "PUT", body: { text: "По смыслу, с перекрытием." } });
+    await api(h.server, cardPaths.check(cardId));
+    await expect.poll(async () => (await sets(h.server))[0]?.data.cards[0]?.attempt?.score).toBe(3);
+    const mastery = async () => ((await h.call("get_progress")).data as { topics: { name: string; mastery: number | null }[] }).topics[0]?.mastery;
+    expect(await mastery()).toBe(33);
+
+    const corrected = await h.call("correct_grade", { card_id: cardId, score: 2, reason: "«500 токенов» — ключевая идея есть." });
+    expect(corrected.data).toMatchObject({ previous_score: 1, score: 2, topic_mastery: 67 });
+    expect(await mastery()).toBe(67);
+    expect((await sets(h.server))[0]?.data.result).toMatchObject({ score: 2, max: 3 });
   });
 
   it("caps a corrected score by the Hint ladder and corrects a set already in history", async () => {

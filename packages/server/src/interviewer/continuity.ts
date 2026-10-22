@@ -1,16 +1,16 @@
 // Continuity without session management (ADR-0002): when the Chat's Agent session ends, what the
-// next one starts from, the review at Activity boundaries, and memory updates the Candidate
+// next one starts from, the review at Activity boundaries, and the profile and Decision log updates the Candidate
 // confirms. The Chat asks this policy before every turn; Activities trigger it by completing.
 import crypto from "node:crypto";
-import { and, asc, desc, eq, gte, isNull, ne } from "drizzle-orm";
-import type { MemoryProposalView } from "@prepare-to-interview/shared";
+import { and, asc, eq, gte, isNull, ne } from "drizzle-orm";
+import type { ReviewProposalView } from "@prepare-to-interview/shared";
 import type { AgentSessionRow, Chat, SessionPolicy } from "../chat/chat.ts";
 import type { Database } from "../db/database.ts";
 import {
   activities,
   agentSessions,
   chatMessages,
-  memoryProposals,
+  reviewProposals,
   type ActivityKind,
   type ProposedDecision,
   type ProposedProfile,
@@ -28,7 +28,7 @@ export const rotationUsageRatio = 0.75;
 /** Reasons the app ends a Chat Agent session, as stored in `agent_sessions.ended_reason`. */
 export const rotationReasons = {
   /** The Interviewer called end_session after the review. */
-  reviewed: "session_ended",
+  sessionEnded: "session_ended",
   newDay: "new_day",
   usage: "usage_threshold",
   boundary: (kind: ActivityKind) => `activity:${kind}`,
@@ -47,6 +47,8 @@ export interface ContinuityOptions {
   settings: Settings;
   /** Read lazily: the Chat is built with this policy. */
   chat: () => Chat;
+  /** Whether the Candidate has an unsubmitted Practice set on the Canvas. */
+  practiceInProgress: () => boolean;
   now: () => Date;
 }
 
@@ -56,6 +58,10 @@ export class Continuity implements SessionPolicy {
   readonly #settings: Settings;
   readonly #chat: () => Chat;
   readonly #now: () => Date;
+  readonly #practiceInProgress: () => boolean;
+  readonly #holds: (() => boolean)[] = [];
+  /** The boundary whose review waits for a hold to settle. */
+  #pendingReview: Activity | undefined;
 
   constructor(options: ContinuityOptions) {
     this.#db = options.db;
@@ -63,6 +69,7 @@ export class Continuity implements SessionPolicy {
     this.#settings = options.settings;
     this.#chat = options.chat;
     this.#now = options.now;
+    this.#practiceInProgress = options.practiceInProgress;
     this.#domain.onActivityCompleted((activity) => this.#boundary(activity));
   }
 
@@ -73,13 +80,14 @@ export class Continuity implements SessionPolicy {
    * threshold rotate it even mid-review, since the Briefing and the skill carry the Activity on.
    */
   rotationReason(session: AgentSessionRow): string | null {
-    if (session.rotateReason === rotationReasons.reviewed) return session.rotateReason;
     if (localDate(session.startedAt) < localDate(this.#now())) return rotationReasons.newDay;
     if (session.usedTokens !== null && session.contextSize && session.usedTokens / session.contextSize >= rotationUsageRatio) {
       return rotationReasons.usage;
     }
-    if (session.rotateReason && this.#domain.currentActivity()?.kind !== "review") return session.rotateReason;
-    return null;
+    // A boundary or end_session waits while the review runs and while a Practice set is unsubmitted.
+    if (!session.rotateReason || this.#practiceInProgress()) return null;
+    if (session.rotateReason === rotationReasons.sessionEnded) return session.rotateReason;
+    return this.#domain.currentActivity()?.kind === "review" ? null : session.rotateReason;
   }
 
   /** Keeps a summary of every ended session: the Interviewer's, or one composed from its Activities. */
@@ -117,7 +125,7 @@ export class Continuity implements SessionPolicy {
     this.#db.update(agentSessions).set({ briefedAt: this.#now() }).where(and(eq(agentSessions.id, sessionId), isNull(agentSessions.briefedAt))).run();
   }
 
-  // End of session and memory
+  // End of session and proposals
 
   /**
    * The Interviewer's end-session call: stores the summary, completes the review, and rotates the
@@ -125,10 +133,11 @@ export class Continuity implements SessionPolicy {
    * the Candidate's confirmation; nothing is saved here.
    */
   endSession(input: EndSessionInput): { sessionId: string; proposalId: string | null } {
-    const session = this.#liveSession();
-    if (!session) throw new DomainError("No Chat Agent session is running.", "Call end_session only from the Chat.");
+    const sessionId = this.#chat().turnSessionId;
+    const session = sessionId && this.#db.select().from(agentSessions).where(eq(agentSessions.id, sessionId)).get();
+    if (!session) throw new DomainError("No Chat turn is running.", "Call end_session only from the Chat, during your reply.");
     const summary = [input.summary, ...(input.observations?.length ? [`Observations: ${input.observations.join("; ")}`] : [])].join("\n");
-    this.#db.update(agentSessions).set({ summary, rotateReason: rotationReasons.reviewed }).where(eq(agentSessions.id, session.id)).run();
+    this.#db.update(agentSessions).set({ summary, rotateReason: rotationReasons.sessionEnded }).where(eq(agentSessions.id, session.id)).run();
     const current = this.#domain.currentActivity();
     if (current?.kind === "review") this.#domain.completeActivity(current.id, input.summary);
     const profile = input.profile && Object.keys(input.profile).length ? input.profile : null;
@@ -136,20 +145,20 @@ export class Continuity implements SessionPolicy {
     if (!profile && !decisions.length) return { sessionId: session.id, proposalId: null };
     const proposalId = crypto.randomUUID();
     this.#db
-      .insert(memoryProposals)
+      .insert(reviewProposals)
       .values({ id: proposalId, agentSessionId: session.id, targetId: this.#domain.activeTargetId(), profile, decisions, status: "pending", createdAt: this.#now() })
       .run();
     this.#chat().post("Предлагаю запомнить по итогам:", { proposalId });
     return { sessionId: session.id, proposalId };
   }
 
-  proposal(proposalId: string): MemoryProposalView | undefined {
-    const row = this.#db.select().from(memoryProposals).where(eq(memoryProposals.id, proposalId)).get();
+  proposal(proposalId: string): ReviewProposalView | undefined {
+    const row = this.#db.select().from(reviewProposals).where(eq(reviewProposals.id, proposalId)).get();
     return row && { id: row.id, status: row.status, items: describeProposal(row.profile, row.decisions) };
   }
 
   /** The Candidate confirmed: the profile and Decision log updates are saved. */
-  acceptProposal(proposalId: string): MemoryProposalView {
+  acceptProposal(proposalId: string): ReviewProposalView {
     const row = this.#pendingProposal(proposalId);
     const p = row.profile;
     if (p) {
@@ -165,7 +174,7 @@ export class Continuity implements SessionPolicy {
     return this.#settle(proposalId, "accepted");
   }
 
-  declineProposal(proposalId: string): MemoryProposalView {
+  declineProposal(proposalId: string): ReviewProposalView {
     this.#pendingProposal(proposalId);
     return this.#settle(proposalId, "declined");
   }
@@ -173,8 +182,9 @@ export class Continuity implements SessionPolicy {
   // Internals
 
   /**
-   * An Activity boundary: the session will rotate, and when nothing else runs the app starts the
-   * review Activity and asks the Interviewer for the review in a turn of its own.
+   * An Activity boundary: the session will rotate before the next turn (never mid-turn, since the
+   * Chat asks the policy only when a turn starts). The review waits until the caller's change is
+   * done and no hold is busy, such as grading still running, then starts in a turn of its own.
    */
   #boundary(activity: Activity): void {
     if (!boundaryActivities.includes(activity.kind)) return;
@@ -183,25 +193,44 @@ export class Continuity implements SessionPolicy {
       .set({ rotateReason: rotationReasons.boundary(activity.kind) })
       .where(and(eq(agentSessions.role, "chat"), isNull(agentSessions.endedAt), isNull(agentSessions.rotateReason)))
       .run();
-    if (!this.#settings.agentSettings().agent || this.#domain.currentActivity()) return;
-    this.#domain.startActivity("review", { targetId: activity.targetId });
-    // After the caller finished its change, such as posting the grading summary.
-    queueMicrotask(() => this.#chat().prompt(reviewRequest(activity)));
+    this.#pendingReview = activity;
+    // After the caller finished its change, such as enqueueing grading or posting a summary.
+    queueMicrotask(() => this.releaseReview());
   }
 
-  #liveSession(): AgentSessionRow | undefined {
-    return this.#db
-      .select()
-      .from(agentSessions)
-      .where(and(eq(agentSessions.role, "chat"), isNull(agentSessions.endedAt)))
-      .orderBy(desc(agentSessions.startedAt))
-      .get();
+  /**
+   * Registers work the review must wait for, such as open answers still with the Grader. Call
+   * `releaseReview` when that work settles.
+   */
+  holdReview(busy: () => boolean): void {
+    this.#holds.push(busy);
+  }
+
+  /** Starts the review of the last boundary once nothing holds it; a no-op otherwise. */
+  releaseReview(): void {
+    const activity = this.#pendingReview;
+    if (!activity || this.#holds.some((busy) => busy())) return;
+    this.#pendingReview = undefined;
+    // Another Activity already took over, or no agent can run the review.
+    if (!this.#settings.agentSettings().agent || this.#domain.currentActivity()) return;
+    const { activity: review } = this.#domain.startActivity("review", { targetId: activity.targetId });
+    const running = () => this.#domain.currentActivity()?.id === review.id;
+    this.#chat().prompt({
+      text: reviewRequest(activity),
+      // The Candidate may start another Activity before the queued review runs.
+      wanted: running,
+      // The review is one turn: it ends with that turn even without end_session, so the
+      // boundary rotation is never stuck behind a review the agent did not close.
+      done: () => {
+        if (running()) this.#domain.completeActivity(review.id, "The review turn ended without end_session.");
+      },
+    });
   }
 
   #pendingProposal(proposalId: string) {
-    const row = this.#db.select().from(memoryProposals).where(eq(memoryProposals.id, proposalId)).get();
+    const row = this.#db.select().from(reviewProposals).where(eq(reviewProposals.id, proposalId)).get();
     if (!row) {
-      throw new DomainError(`No memory proposal "${proposalId}".`, "Use a proposal from the Chat.", {
+      throw new DomainError(`No review proposal "${proposalId}".`, "Use a proposal from the Chat.", {
         kind: "not_found",
         candidateMessage: "такого предложения нет. Обновите страницу.",
       });
@@ -212,12 +241,12 @@ export class Continuity implements SessionPolicy {
     return row;
   }
 
-  #settle(proposalId: string, status: "accepted" | "declined"): MemoryProposalView {
-    this.#db.update(memoryProposals).set({ status, settledAt: this.#now() }).where(eq(memoryProposals.id, proposalId)).run();
+  #settle(proposalId: string, status: "accepted" | "declined"): ReviewProposalView {
+    this.#db.update(reviewProposals).set({ status, settledAt: this.#now() }).where(eq(reviewProposals.id, proposalId)).run();
     const message = this.#db.select({ id: chatMessages.id }).from(chatMessages).where(eq(chatMessages.proposalId, proposalId)).get();
     if (message) this.#chat().refresh(message.id);
     const view = this.proposal(proposalId);
-    if (!view) throw new Error("Memory proposal vanished right after it was answered.");
+    if (!view) throw new Error("Review proposal vanished right after it was answered.");
     return view;
   }
 }

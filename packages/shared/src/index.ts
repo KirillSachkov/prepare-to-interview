@@ -251,19 +251,19 @@ export interface ChatMessage {
   toolCalls: ChatToolCall[];
   /** The Card the message is about, such as after «Обсудить». */
   card?: { id: string; prompt: string };
-  /** Memory updates the Interviewer proposed; the app saves them only once the Candidate confirms. */
-  proposal?: MemoryProposalView;
+  /** Candidate profile and Decision log updates the Interviewer proposed; the app saves them only once the Candidate confirms. */
+  proposal?: ReviewProposalView;
 }
 
 /** Candidate profile and Decision log updates proposed in a review, as the Chat shows them. */
-export interface MemoryProposalView {
+export interface ReviewProposalView {
   id: string;
   status: "pending" | "accepted" | "declined";
   /** One line per proposed change, in Russian labels. */
   items: string[];
 }
 
-/** REST paths of the Candidate's answer to a memory proposal. */
+/** REST paths of the Candidate's answer to a review proposal. */
 export const proposalPaths = {
   /** POST: saves the proposed profile and Decision log updates. */
   accept: (proposalId: string) => `/api/proposals/${proposalId}/accept`,

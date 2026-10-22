@@ -335,8 +335,8 @@ describe("Submitting and grading", () => {
     const chat = await get<ChatSnapshot>(server, apiPaths.chat);
     expect(chat.messages.at(-1)?.role).toBe("interviewer");
     expect(chat.messages.at(-1)?.text).toContain("Подборка проверена: «Подборка на сегодня» — 5 из 9.");
-    // The graded set completed its Activity; the app started the review.
-    expect((await call("get_profile")).data.activity).toMatchObject({ kind: "review" });
+    // The graded set completed its Activity; the review the app started ended with its turn.
+    expect((await call("get_profile")).data.activity).toBeNull();
   });
 
   it("refuses a Grader verdict without a verbatim quote, asks again, and fails the Card after two bad replies", async () => {

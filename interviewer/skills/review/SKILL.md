@@ -21,7 +21,7 @@ Fit the review to the Activity: after onboarding, recap the agreed target and th
 after a Practice set or a Mock interview, work from the grades; after Research, from what entered
 the bank. Keep it short: a few lines per part. Use only numbers the app sent; compute none.
 
-## Memory and end of session
+## Proposals and end of session
 
 In the same turn, call `end_session` once:
 

@@ -1,4 +1,4 @@
-CREATE TABLE `memory_proposals` (
+CREATE TABLE `review_proposals` (
 	`id` text PRIMARY KEY NOT NULL,
 	`agent_session_id` text,
 	`target_id` text,

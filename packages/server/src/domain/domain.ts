@@ -23,9 +23,9 @@ import {
 } from "../db/schema.ts";
 import type { EventBus } from "../events.ts";
 import { localDate, maxHintRungs } from "./arithmetic.ts";
+import { Progress, type Tx } from "./progress.ts";
 
 export { localDate };
-import { Progress, type Tx } from "./progress.ts";
 
 /**
  * A domain rule refused the request. The message says what is wrong and `fixHint` how to retry;
@@ -706,7 +706,6 @@ function tidy(text: string): string {
 export function normalize(text: string): string {
   return tidy(text).toLocaleLowerCase();
 }
-
 
 /** Calendar days from one `YYYY-MM-DD` date to another; `null` once the second is past. */
 function daysBetween(from: string, to: string): number | null {

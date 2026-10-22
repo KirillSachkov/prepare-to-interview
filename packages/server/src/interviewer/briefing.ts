@@ -1,8 +1,9 @@
 // The Briefing (GLOSSARY): what a fresh Agent session of the Chat starts from, assembled by the
-// server so continuity never depends on the agent's memory. Bounded in size by construction.
+// server so continuity never depends on what the agent retains. Bounded in size by construction.
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import type { Database } from "../db/database.ts";
 import { activities, agentSessions, chatMessages } from "../db/schema.ts";
+import { masteryPercent, weakMastery } from "../domain/arithmetic.ts";
 import type { Domain } from "../domain/domain.ts";
 
 /** Upper bound of the Briefing text the agent receives, in characters. */
@@ -19,9 +20,6 @@ const limits = {
   summaryText: 600,
   chatText: 300,
 } as const;
-
-/** Mastery below this counts as a weak Topic. */
-const weakMastery = 0.7;
 
 export interface BriefingData {
   note: string;
@@ -85,7 +83,7 @@ export function assembleBriefing(db: Database, domain: Domain, excludeSessionId:
     },
     due_questions: { count: progress?.due ?? 0, first: (queue?.due ?? []).map((q) => `${q.topic}: ${clip(q.prompt, limits.shortText)}`) },
     weak_topics: (progress?.topics ?? [])
-      .flatMap((t) => (t.mastery !== null && t.mastery < weakMastery ? [{ name: t.name, priority: t.priority, mastery: Math.round(t.mastery * 100) }] : []))
+      .flatMap((t) => (t.mastery !== null && t.mastery < weakMastery ? [{ name: t.name, priority: t.priority, mastery: masteryPercent(t.mastery) ?? 0 }] : []))
       .sort((a, b) => a.mastery - b.mastery)
       .slice(0, limits.weakTopics),
     profile: profile && {

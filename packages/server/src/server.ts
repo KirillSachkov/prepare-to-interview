@@ -72,7 +72,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const mcpServers: McpServerConfig[] = [];
   // eslint-disable-next-line prefer-const -- assigned below: the Chat is built with the policy that reads it.
   let chat: Chat;
-  const continuity = new Continuity({ db, domain, settings, chat: () => chat, now });
+  const continuity = new Continuity({ db, domain, settings, chat: () => chat, practiceInProgress: () => practice.unfinished() !== null, now });
   const interviewer = new Interviewer({
     contentDir,
     domain,
@@ -98,6 +98,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   dayWatch.unref();
   const grader = new Grader({ db, settings, drivers: drivers.get, contentDir });
   const runner = new PracticeRunner({ practice, grader, chat });
+  // The review after a graded set or a Mock interview waits for the Grader.
+  continuity.holdReview(() => runner.grading);
+  runner.onSettled(() => continuity.releaseReview());
 
   const app = createApp({
     token: dataDir.token,
