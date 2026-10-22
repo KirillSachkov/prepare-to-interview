@@ -22,7 +22,9 @@ import {
   type Vacancy,
 } from "../db/schema.ts";
 import type { EventBus } from "../events.ts";
-import { maxHintRungs } from "./arithmetic.ts";
+import { localDate, maxHintRungs } from "./arithmetic.ts";
+
+export { localDate };
 import { Progress, type Tx } from "./progress.ts";
 
 /**
@@ -167,6 +169,7 @@ export class Domain {
   readonly #events: EventBus;
   readonly #now: () => Date;
   readonly progress: Progress;
+  readonly #completedListeners: ((activity: Activity) => void)[] = [];
 
   constructor(db: Database, events: EventBus, now: () => Date = () => new Date()) {
     this.#db = db;
@@ -230,6 +233,14 @@ export class Domain {
   /** Whether onboarding ever started, finished or not; a skipped onboarding does not restart by itself. */
   onboardingStarted(): boolean {
     return this.#db.select({ id: activities.id }).from(activities).where(eq(activities.kind, "onboarding")).get() !== undefined;
+  }
+
+  /**
+   * Runs after an Activity completed, however it ended: the agent's finish_activity, a graded
+   * Practice set, or any later Activity calling `completeActivity`. Activity boundaries hook here.
+   */
+  onActivityCompleted(listener: (activity: Activity) => void): void {
+    this.#completedListeners.push(listener);
   }
 
   // Changes
@@ -414,11 +425,13 @@ export class Domain {
 
   /** Completes the Activity if it is still running, such as a Practice set once graded. */
   completeActivity(activityId: string, summary: string): void {
-    this.#db
+    const completed = this.#db
       .update(activities)
       .set({ status: "completed", summary, endedAt: this.#now() })
       .where(and(eq(activities.id, activityId), eq(activities.status, "active")))
-      .run();
+      .returning()
+      .all();
+    for (const activity of completed) this.#completed(activity);
   }
 
   /** The Topic id for a name in the bank, if the bank has it. */
@@ -432,20 +445,18 @@ export class Domain {
    * saved its Preparation target completes, and a fresh onboarding sets up the next target.
    */
   startActivity(kind: ActivityKind, options: { targetId?: string | null; newTarget?: boolean } = {}): { activity: Activity; started: boolean } {
+    let completed = undefined as Activity | undefined;
     const result = this.#db.transaction((tx) => {
       const current = tx.select().from(activities).where(eq(activities.status, "active")).get();
       const setUpTarget = options.newTarget === true && current?.kind === "onboarding" && current.targetId !== null;
       if (current?.kind === kind && !setUpTarget) return { activity: current, started: false };
       const now = this.#now();
       if (current) {
-        tx.update(activities)
-          .set(
-            setUpTarget
-              ? { status: "completed", endedAt: now, summary: "Set up a Preparation target; the Candidate moved on to a new one." }
-              : { status: "abandoned", endedAt: now },
-          )
-          .where(eq(activities.id, current.id))
-          .run();
+        const ended = setUpTarget
+          ? ({ status: "completed", endedAt: now, summary: "Set up a Preparation target; the Candidate moved on to a new one." } as const)
+          : ({ status: "abandoned", endedAt: now } as const);
+        tx.update(activities).set(ended).where(eq(activities.id, current.id)).run();
+        if (setUpTarget) completed = { ...current, ...ended };
       }
       const activity: Activity = {
         id: crypto.randomUUID(),
@@ -459,6 +470,7 @@ export class Domain {
       tx.insert(activities).values(activity).run();
       return { activity, started: true };
     });
+    if (completed) this.#completed(completed);
     return result;
   }
 
@@ -480,10 +492,15 @@ export class Domain {
       .set({ status: ended.status, summary: ended.summary, endedAt: ended.endedAt })
       .where(eq(activities.id, current.id))
       .run();
+    if (ended.status === "completed") this.#completed(ended);
     return ended;
   }
 
   // Internals
+
+  #completed(activity: Activity): void {
+    for (const listener of this.#completedListeners) listener(activity);
+  }
 
   /** The Preparation target the Candidate works on, if any. */
   activeTargetId(): string | null {
@@ -690,11 +707,6 @@ export function normalize(text: string): string {
   return tidy(text).toLocaleLowerCase();
 }
 
-/** The local calendar date of an instant as `YYYY-MM-DD`. */
-export function localDate(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 
 /** Calendar days from one `YYYY-MM-DD` date to another; `null` once the second is past. */
 function daysBetween(from: string, to: string): number | null {

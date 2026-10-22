@@ -2,7 +2,7 @@
 // through here: drafts, hints, Skipped, test checks, Grader results, retries. Scheduling and
 // Mastery follow each Attempt in the same transaction.
 import crypto from "node:crypto";
-import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
   maxAnswerLength,
   maxPracticeCards,
@@ -29,7 +29,7 @@ import {
   type RubricAnchors,
 } from "../db/schema.ts";
 import { checkTest, correctOptions, hintCap, maxHintRungs, maxScore } from "./arithmetic.ts";
-import { DomainError, languages, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
+import { DomainError, languages, localDate, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
 import type { Tx } from "./progress.ts";
 
 export interface PlaceSetInput {
@@ -95,6 +95,8 @@ export interface AttemptEvidence {
   quote: string | null;
   strengths: string | null;
   gap: string | null;
+  /** Set once the Interviewer corrected a disputed grade. */
+  corrected?: { from: number; reason: string };
 }
 
 /** What the Interviewer receives when the Candidate brings a Card into the Chat. */
@@ -118,6 +120,22 @@ type SetRow = typeof practiceSets.$inferSelect;
 type CardRow = typeof cards.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type AttemptRow = typeof attempts.$inferSelect;
+
+/** A graded Practice set that left the Canvas for history. */
+export interface HistoryEntry {
+  id: string;
+  gradedAt: Date;
+  archivedAt: Date;
+  set: PracticeSetView;
+}
+
+/** A disputed grade the Interviewer corrects after agreeing with the Candidate. */
+export interface GradeCorrection {
+  score: number;
+  reason: string;
+  gap?: string | undefined;
+  strengths?: string | undefined;
+}
 
 /** Server-side width estimates for placing the next node to the right; the client renders these widths. */
 const wideSetWidth = 800;
@@ -143,7 +161,10 @@ export class Practice {
     this.#domain = options.domain;
     this.#canvas = options.canvas;
     this.#now = options.now;
-    this.#canvas.addSource(() => this.nodes());
+    this.#canvas.addSource(() => {
+      this.archiveStale();
+      return this.nodes();
+    });
   }
 
   /** Runs after a Practice set's last Card got its Attempt. */
@@ -153,12 +174,12 @@ export class Practice {
 
   // Reads
 
-  /** Practice sets on the Canvas, oldest first. */
+  /** Practice sets on the Canvas, oldest first; sets in history are left out. */
   nodes(): PracticeSetNode[] {
     const sets = this.#db
       .select()
       .from(practiceSets)
-      .where(ne(practiceSets.status, "abandoned"))
+      .where(and(ne(practiceSets.status, "abandoned"), isNull(practiceSets.archivedAt)))
       .orderBy(asc(practiceSets.createdAt))
       .all();
     const layouts = this.#canvas.layouts(sets.map((s) => s.id));
@@ -232,6 +253,18 @@ export class Practice {
       .map((s) => this.#result(s));
   }
 
+  /** Graded Practice sets in history, most recently graded first. */
+  history(limit = 50): HistoryEntry[] {
+    return this.#db
+      .select()
+      .from(practiceSets)
+      .where(isNotNull(practiceSets.archivedAt))
+      .orderBy(desc(practiceSets.gradedAt), desc(sql`rowid`))
+      .limit(limit)
+      .all()
+      .map((s) => ({ id: s.id, gradedAt: s.gradedAt ?? s.createdAt, archivedAt: s.archivedAt ?? s.createdAt, set: this.#view(s) }));
+  }
+
   markReported(setIds: string[]): void {
     if (!setIds.length) return;
     this.#db.update(practiceSets).set({ reportedAt: this.#now() }).where(inArray(practiceSets.id, setIds)).run();
@@ -262,9 +295,11 @@ export class Practice {
       throw new DomainError("The same Question is listed twice.", "List each Question once.");
     }
     const { activity, started } = this.#domain.startActivity("practice_set", { targetId: this.#domain.activeTargetId() });
+    this.archiveStale();
     const now = this.#now();
     const id = crypto.randomUUID();
     const collapse: string[] = [];
+    const archive: string[] = [];
     const expired = this.#db.select().from(practiceSets).where(eq(practiceSets.status, "active")).all().filter((s) => this.#expired(s));
     this.#db.transaction((tx) => {
       if (unfinished) tx.update(practiceSets).set({ status: "abandoned" }).where(eq(practiceSets.id, unfinished.setId)).run();
@@ -273,7 +308,18 @@ export class Practice {
         for (const card of this.#cards(set.id, tx)) if (card.status === "open") this.#answer(tx, card);
         tx.update(practiceSets).set({ status: "grading", submittedAt: set.deadline }).where(eq(practiceSets.id, set.id)).run();
       }
-      collapse.push(...tx.select({ id: practiceSets.id }).from(practiceSets).where(eq(practiceSets.status, "graded")).all().map((r) => r.id));
+      // Auto-tidy (ADR-0004): the latest result Card stays collapsed next to the new set; older ones move to history.
+      const results = tx
+        .select({ id: practiceSets.id })
+        .from(practiceSets)
+        .where(and(eq(practiceSets.status, "graded"), isNull(practiceSets.archivedAt)))
+        // Insertion order breaks ties within a millisecond.
+        .orderBy(desc(practiceSets.gradedAt), desc(sql`rowid`))
+        .all()
+        .map((r) => r.id);
+      collapse.push(...results.slice(0, 1));
+      archive.push(...results.slice(1));
+      if (archive.length) tx.update(practiceSets).set({ archivedAt: now }).where(inArray(practiceSets.id, archive)).run();
       tx.insert(practiceSets)
         .values({
           id,
@@ -293,6 +339,7 @@ export class Practice {
         .run();
     });
     if (unfinished) this.#canvas.removed(unfinished.setId);
+    for (const setId of archive) this.#canvas.removed(setId);
     for (const set of expired) this.#settle(set.id);
     const expanded = [...this.#canvas.layouts(collapse).entries()].filter(([, l]) => !l.collapsed).map(([nodeId]) => nodeId);
     if (expanded.length) this.#canvas.updateLayout(expanded.map((nodeId) => ({ nodeId, collapsed: true })));
@@ -402,16 +449,87 @@ export class Practice {
   retry(cardId: string): PracticeSetNode {
     const card = this.#card(cardId);
     if (card.status !== "graded" && card.status !== "skipped") throw invalid("Only an answered Card can be retried.", "повторить можно только карточку с ответом.");
-    this.#liveSet(card.setId);
+    this.#onCanvas(card.setId);
     this.#db.update(cards).set({ status: "open", retry: true, error: null }).where(eq(cards.id, cardId)).run();
     return this.#changed(card.setId);
   }
 
   setReveal(setId: string, reveal: RevealMode): PracticeSetNode {
-    const set = this.#liveSet(setId);
+    const set = this.#onCanvas(setId);
     if (set.kind === "quiz") throw invalid("A Quiz always shows each grade right away.", "в квизе оценки всегда видны сразу.");
     this.#db.update(practiceSets).set({ reveal }).where(eq(practiceSets.id, setId)).run();
     return this.#changed(setId);
+  }
+
+  /**
+   * Auto-tidy on a new day (ADR-0004): result Cards graded on an earlier day move to history.
+   * Returns the ids that left the Canvas.
+   */
+  archiveStale(): string[] {
+    const today = localDate(this.#now());
+    const stale = this.#db
+      .select({ id: practiceSets.id, gradedAt: practiceSets.gradedAt })
+      .from(practiceSets)
+      .where(and(eq(practiceSets.status, "graded"), isNull(practiceSets.archivedAt)))
+      .all()
+      .filter((s) => s.gradedAt && localDate(s.gradedAt) < today)
+      .map((s) => s.id);
+    if (!stale.length) return [];
+    this.#db.update(practiceSets).set({ archivedAt: this.#now() }).where(inArray(practiceSets.id, stale)).run();
+    for (const setId of stale) this.#canvas.removed(setId);
+    return stale;
+  }
+
+  /**
+   * Corrects the grade of the Card's latest Attempt after the Candidate disputed it and the
+   * Interviewer agreed. The Hint ladder cap still applies; the Leitner schedule is replayed and
+   * Mastery follows, since it is read from Attempts. Works for sets in history too.
+   */
+  correctGrade(cardId: string, correction: GradeCorrection): { cardId: string; questionId: string; topic: string; previous: number; score: number; maxScore: number } {
+    const card = this.#card(cardId);
+    this.#liveSet(card.setId);
+    const attempt = card.attemptId ? this.#attempt(card.attemptId) : undefined;
+    if (!attempt || attempt.status !== "graded" || attempt.score === null) {
+      throw new DomainError("This Card has no graded Attempt to correct.", "Only a graded open answer can be corrected; a Skipped Card has no score.");
+    }
+    if (attempt.gradedBy !== "grader") {
+      throw new DomainError("Test Cards are checked by the app against their options; their grade cannot be disputed.", "Explain the correct options instead of changing the grade.");
+    }
+    if (correction.score > attempt.maxScore) {
+      throw new DomainError(
+        `The Attempt used ${attempt.hintRung} hint rung(s), so its score is capped at ${attempt.maxScore}.`,
+        `Pass a score from 0 to ${attempt.maxScore}.`,
+      );
+    }
+    if (correction.score === attempt.score) {
+      throw new DomainError(`The Attempt already has score ${attempt.score}.`, "Pass a different score, or keep the grade.");
+    }
+    const now = this.#now();
+    this.#db.transaction((tx) => {
+      tx.update(attempts)
+        .set({
+          score: correction.score,
+          correctedFrom: attempt.correctedFrom ?? attempt.score,
+          correctionReason: correction.reason,
+          correctedAt: now,
+          ...(correction.gap !== undefined && { gap: correction.gap }),
+          ...(correction.strengths !== undefined && { strengths: correction.strengths }),
+        })
+        .where(eq(attempts.id, attempt.id))
+        .run();
+      if (!attempt.retry) this.#domain.progress.reschedule(tx, attempt.questionId);
+    });
+    if (!this.#set(card.setId).archivedAt) this.#changed(card.setId);
+    this.#domain.publishTargets();
+    const question = this.#question(card.questionId);
+    return {
+      cardId,
+      questionId: question.id,
+      topic: this.#topicName(question.topicId),
+      previous: attempt.score,
+      score: correction.score,
+      maxScore: attempt.maxScore,
+    };
   }
 
   /** Cards left grading when the app stopped can never finish; the Candidate checks them again. */
@@ -659,6 +777,13 @@ export class Practice {
     return set;
   }
 
+  /** A set still on the Canvas, not in history; Card changes need one. */
+  #onCanvas(setId: string): SetRow {
+    const set = this.#liveSet(setId);
+    if (set.archivedAt) throw invalid(`Practice set "${set.title}" is in history.`, "подборка уже в истории.");
+    return set;
+  }
+
   /** A timed Quiz whose deadline has passed while it was still open. */
   #expired(set: SetRow): boolean {
     return set.status === "active" && set.deadline !== null && set.deadline.getTime() <= this.#now().getTime();
@@ -706,6 +831,7 @@ function evidence(attempt: AttemptRow): AttemptEvidence {
     quote: attempt.quote,
     strengths: attempt.strengths,
     gap: attempt.gap,
+    ...(attempt.correctedFrom !== null && { corrected: { from: attempt.correctedFrom, reason: attempt.correctionReason ?? "" } }),
   };
 }
 

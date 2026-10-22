@@ -30,11 +30,19 @@ export interface InterviewerOptions {
   practice: Practice;
   /** The app's MCP servers; read lazily because the URL is known only after the server listens. */
   mcpServers: () => McpServerConfig[];
+  /** The Briefing a fresh Chat Agent session starts from (see `continuity.ts`). */
+  briefings?: Briefings;
   now?: () => Date;
 }
 
+export interface Briefings {
+  /** The Briefing for the session, or `null` once it has one. */
+  briefing(agentSessionId: string): string | null;
+  briefed(agentSessionId: string): void;
+}
+
 /** Activities that have a skill file in the product directory. */
-const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set"];
+const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set", "review"];
 
 /** Shared references appended to an Activity's skill. */
 const skillReferences: Partial<Record<ActivityKind, string[]>> = {
@@ -44,7 +52,7 @@ const skillReferences: Partial<Record<ActivityKind, string[]>> = {
 /**
  * Seam between the Chat and Interviewer orchestration: decides what each Agent session gets
  * (persona, tools, MCP servers), starts Activities the server owns, and composes each turn's
- * hidden state and the Activity's skill. Briefings and session rotation extend this class.
+ * hidden state, the Briefing of a fresh session, and the Activity's skill. Session rotation lives in `continuity.ts`.
  */
 export class Interviewer {
   readonly #persona: string;
@@ -52,6 +60,7 @@ export class Interviewer {
   readonly #domain: Domain;
   readonly #practice: Practice;
   readonly #mcpServers: () => McpServerConfig[];
+  readonly #briefings: Briefings | undefined;
   readonly #now: () => Date;
   /** `<agent session>:<activity>` pairs whose skill the agent already has. */
   readonly #delivered = new Set<string>();
@@ -65,12 +74,13 @@ export class Interviewer {
     this.#domain = options.domain;
     this.#practice = options.practice;
     this.#mcpServers = options.mcpServers;
+    this.#briefings = options.briefings;
     this.#now = options.now ?? (() => new Date());
   }
 
   /**
    * What the agent receives for one Candidate message in the given Agent session: the hidden
-   * state; until the session has the running Activity's skill, that skill; results of Practice
+   * state; the Briefing when the session is new; until the session has the running Activity's skill, that skill; results of Practice
    * sets graded since the last turn; and the Card the message is about. A Candidate without any
    * Preparation target starts in onboarding unless they skipped it before. Call `sent` once the
    * agent took the turn, so a failed turn sends the skill and the results again.
@@ -85,6 +95,8 @@ export class Interviewer {
     const skill = activity && this.#skills.get(activity.kind);
     const key = activity && `${agentSessionId}:${activity.id}`;
     const context: NonNullable<TurnInput["context"]> = [];
+    const briefing = this.#briefings?.briefing(agentSessionId);
+    if (briefing) context.push({ uri: appContextUri("briefing"), text: briefing });
     const sendSkill = skill && key && !this.#delivered.has(key);
     if (sendSkill) context.push({ uri: skillUri(activity.kind), text: skill });
     const results = this.#practice.unreported();
@@ -95,6 +107,7 @@ export class Interviewer {
     return {
       input: { text, hiddenState, ...(context.length && { context }) },
       sent: () => {
+        if (briefing) this.#briefings?.briefed(agentSessionId);
         if (sendSkill) this.#delivered.add(key);
         this.#practice.markReported(results.map((r) => r.setId));
       },
@@ -169,7 +182,7 @@ function describeResult(result: SetResult): string {
       hints_used: c.hintsUsed,
       gap: c.gap,
     })),
-    note: "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask; do not regrade.",
+    note: "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask. Never regrade on your own; a disputed grade is corrected only through correct_grade, as the skill says.",
   });
 }
 

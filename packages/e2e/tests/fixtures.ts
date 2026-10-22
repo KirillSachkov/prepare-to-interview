@@ -60,6 +60,18 @@ export const placeQuiz = (baseURL: string, title: string) =>
 export const saveTarget = (baseURL: string, target: Record<string, unknown>) =>
   agentTurn(baseURL, [{ callTool: { server: "interview", tool: "save_target", arguments: target } }]);
 
+/** Calls the app's REST API as the browser does, with the access token. */
+export async function apiCall(baseURL: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<unknown> {
+  const res = await fetch(new URL(path, baseURL), {
+    method: init.method ?? "GET",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+    ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+  });
+  expect(res.ok, `${path}: ${res.status}`).toBe(true);
+  const text = await res.text();
+  return text ? (JSON.parse(text) as unknown) : undefined;
+}
+
 /** Picks the agent as the Candidate does in settings; the e2e server answers with the fake driver. */
 export async function chooseAgent(baseURL: string): Promise<void> {
   const res = await fetch(new URL(apiPaths.agentSettings, baseURL), {

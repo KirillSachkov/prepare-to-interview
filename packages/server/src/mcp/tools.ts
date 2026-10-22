@@ -12,13 +12,16 @@ import {
   type TargetDetail,
 } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
+import type { Continuity } from "../interviewer/continuity.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
+import { continuityTools, refuseDuringReview } from "./continuity-tools.ts";
 import { defineTool, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
   domain: Domain;
   practice: Practice;
   interviewer: Interviewer;
+  continuity: Continuity;
 }
 
 const shortText = (max: number) => z.string().trim().min(1).max(max);
@@ -149,7 +152,7 @@ const queuedOutput = z.strictObject({
 });
 
 /** The app's MCP tool set; every change goes through the domain core, which validates it. */
-export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDefinition[] {
+export function createTools({ domain, practice, interviewer, continuity }: ToolDeps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_profile",
@@ -220,6 +223,7 @@ export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDe
       fixHint:
         'Pass any of {"experience": "...", "stack": ["..."], "strengths": ["..."], "weak_spots": ["..."], "preferences": "...", "calibration": [{"topic": "...", "level": 0-3, "note": "..."}]} and no other fields.',
       run: (input) => {
+        refuseDuringReview(domain);
         const profile = domain.saveProfile({
           ...(input.experience !== undefined && { experience: input.experience }),
           ...(input.stack && { stack: input.stack }),
@@ -298,6 +302,7 @@ export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDe
       output: z.strictObject({ decision_id: z.string(), target_id: z.string().nullable() }),
       fixHint: 'Pass {"decision": "<what was agreed>", "reason": "<optional>", "target_id": "<optional>"}.',
       run: (input) => {
+        refuseDuringReview(domain);
         const d = domain.recordDecision({
           decision: input.decision,
           ...(input.reason !== undefined && { reason: input.reason }),
@@ -492,5 +497,6 @@ export function createTools({ domain, practice, interviewer }: ToolDeps): ToolDe
       summarize: (o) =>
         `Placed ${o.kind === "quiz" ? "a Quiz" : "a Practice set"} with ${o.cards.length} Cards on the Canvas (${o.practice_set_id}). The Candidate answers on the Cards; the app grades and tells you the results.${o.skill ? ` Follow this skill:\n\n${o.skill}` : ""}`,
     }),
+    ...continuityTools({ domain, practice, continuity }),
   ];
 }

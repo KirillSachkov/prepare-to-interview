@@ -20,6 +20,7 @@ export type CommandId =
   | "bank.open"
   | "question.custom"
   | "target.new"
+  | "history.open"
   | "view.skillMap"
   | "chat.toggle"
   | "zoom.in"
@@ -79,6 +80,8 @@ export interface ShellControls {
   quiz: () => void;
   /** Submits the Practice set holding the focused Card, or the latest unsubmitted one. */
   submitPractice: () => void;
+  /** Opens the history of graded Practice sets that left the Canvas. */
+  openHistory: () => void;
   /** Questions of the active Preparation target Due today. */
   due: number | null;
 }
@@ -148,6 +151,7 @@ export function buildCommands(c: ShellControls): Commands {
     "quiz.start": { id: "quiz.start", label: "Квиз", group: "Инструменты", hotkey: letter("Q"), run: c.quiz },
     "question.custom": { id: "question.custom", label: "Вставить свой вопрос", group: "Карточки", run: c.addQuestion },
     "target.new": { id: "target.new", label: "+ Новая цель", group: "Инструменты", run: c.newTarget },
+    "history.open": { id: "history.open", label: "История", group: "Инструменты", run: c.openHistory },
     "practice.submit": {
       id: "practice.submit",
       label: "Отправить подборку / ответить в моке",

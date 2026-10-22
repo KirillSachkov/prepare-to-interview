@@ -50,6 +50,13 @@
       "when": 1792695514163,
       "tag": "0006_practice_set_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1792696337733,
+      "tag": "0007_continuity",
+      "breakpoints": true
     }
   ]
 }

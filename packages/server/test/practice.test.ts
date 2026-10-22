@@ -40,6 +40,8 @@ interface Harness {
   /** Grader replies by a word the answer contains; each reply is used once, the last one repeats. */
   grades: Map<string, string[]>;
   graderCalls: GraderCall[];
+  /** Inputs of the review turns the app started after graded sets. */
+  reviews: TurnInput[];
   /** While set, Grader turns wait for it before replying. */
   gate: { wait?: Promise<unknown> };
   setDay: (d: number) => void;
@@ -57,7 +59,13 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), options: { a
   const gate: Harness["gate"] = {};
   let lastAnswer = "";
   let driver: FakeDriver | undefined;
+  const reviews: TurnInput[] = [];
   const respond = (config: SessionConfig, input: TurnInput): FakeTurn | undefined => {
+    // The review the app starts after a graded set; continuity.test.ts covers it.
+    if (input.text.includes('<app_context name="activity_ended">')) {
+      reviews.push(input);
+      return [];
+    }
     if (!isGrader(config)) return undefined;
     graderCalls.push({ config, input });
     const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(input.text)?.[1] ?? lastAnswer;
@@ -75,7 +83,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), options: { a
   cleanups.push(() => server.close());
   cleanups.push(dirs.cleanup);
   if (options.agent !== false) await api(server, apiPaths.agentSettings, { method: "PUT", body: { agent: "claude" } });
-  return { server, driver: () => driver!, grades, graderCalls, gate, setDay: (d) => (now = day(d)) };
+  return { server, driver: () => driver!, grades, graderCalls, reviews, gate, setDay: (d) => (now = day(d)) };
 }
 
 const verdict = (score: number, quote: string, right: string, gap: string) => JSON.stringify({ score, quote, right, gap });
@@ -188,7 +196,7 @@ async function setUp(turns: FakeTurn[] = []) {
 async function place(call: Awaited<ReturnType<typeof connectMcp>>, args: Record<string, unknown>) {
   const result = await call("place_practice_set", args);
   expect(result.text).not.toMatch(/^Invalid|Fix:/);
-  return result.data as { practice_set_id: string; cards: { card_id: string }[]; skill: string | null; activity_id: string };
+  return result.data as { practice_set_id: string; cards: { card_id: string; question_id: string }[]; skill: string | null; activity_id: string };
 }
 
 const draft = (server: RunningServer, cardId: string, body: { text?: string; choices?: number[] }) =>
@@ -327,7 +335,8 @@ describe("Submitting and grading", () => {
     const chat = await get<ChatSnapshot>(server, apiPaths.chat);
     expect(chat.messages.at(-1)?.role).toBe("interviewer");
     expect(chat.messages.at(-1)?.text).toContain("Подборка проверена: «Подборка на сегодня» — 5 из 9.");
-    expect((await call("get_profile")).data.activity).toBeNull();
+    // The graded set completed its Activity; the app started the review.
+    expect((await call("get_profile")).data.activity).toMatchObject({ kind: "review" });
   });
 
   it("refuses a Grader verdict without a verbatim quote, asks again, and fails the Card after two bad replies", async () => {
@@ -563,7 +572,7 @@ describe("Scheduling, Mastery, and readiness", () => {
     ]);
 
     // Today's set repeats the RAG Question; a 3 moves it up and recent Attempts weigh more.
-    const repeat = await place(call, { title: "День 4", cards: [{ question_id: (await onlySet(server)).data.cards[0]!.questionId }] });
+    const repeat = await place(call, { title: "День 4", cards: [{ question_id: placed.cards[0]!.question_id }] });
     await draft(server, repeat.cards[0]!.card_id, { text: "По смыслу, 300–800 токенов, перекрытие, recall@k." });
     grades.set("смыслу", [verdict(3, "300–800 токенов", "Полно.", "")]);
     await api(server, practiceSetPaths.submit(repeat.practice_set_id));
@@ -608,7 +617,7 @@ describe("Chat and the Interviewer", () => {
   });
 
   it("sends the grading result to the Interviewer once, and a discussed Card with its answer and grade", async () => {
-    const { server, call, driver, grades } = await setUp([[reply("Разберём.")], [reply("Ещё раз про чанки.")]]);
+    const { server, call, driver, grades, reviews } = await setUp([[reply("Разберём.")], [reply("Ещё раз про чанки.")]]);
     const placed = await place(call, { title: "Подборка", cards: [openRag] });
     const cardId = placed.cards[0]!.card_id;
     await draft(server, cardId, { text: "Режу по заголовкам." });
@@ -621,14 +630,14 @@ describe("Chat and the Interviewer", () => {
     const discussed = chat.messages.find((m) => m.role === "candidate");
     expect(discussed).toMatchObject({ text: "Обсудим эту карточку.", card: { id: cardId, prompt: openRag.prompt } });
 
-    const first = driver().prompts[0]!;
-    const uris = first.context?.map((c) => c.uri);
-    // The graded set completed its Activity, so no skill goes out; the result and the Card do.
-    expect(uris).toEqual([`app://context/practice-set/${placed.practice_set_id}`, `app://context/card/${cardId}`]);
-    const result = first.context?.[0]?.text ?? "";
+    // The graded set completed its Activity: the review the app started received the result.
+    expect(reviews.map((r) => r.context?.map((c) => c.uri))).toEqual([[skillUri("review"), `app://context/practice-set/${placed.practice_set_id}`]]);
+    const result = reviews[0]?.context?.[1]?.text ?? "";
     expect(result).toContain('"score": 2');
     expect(result).toContain("Нет метрик.");
-    const cardContext = first.context?.[1]?.text ?? "";
+    const first = driver().prompts[0]!;
+    expect(first.context?.map((c) => c.uri)).toEqual([`app://context/card/${cardId}`]);
+    const cardContext = first.context?.[0]?.text ?? "";
     for (const part of [openRag.prompt, "Режу по заголовкам.", '"score": 2', "Нет метрик.", openRag.reference_answer]) expect(cardContext).toContain(part);
 
     await api(server, apiPaths.chatMessages, { body: { text: "А как проверить?" } });

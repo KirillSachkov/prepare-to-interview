@@ -20,12 +20,16 @@ import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
 import { createTools } from "./mcp/tools.ts";
+import { Continuity } from "./interviewer/continuity.ts";
 import { Grader } from "./interviewer/grader.ts";
 import { defaultContentDir, Interviewer } from "./interviewer/interviewer.ts";
 import { PracticeRunner } from "./interviewer/practice-runner.ts";
 import { Settings } from "./settings/settings.ts";
 
 export const appVersion = "0.0.0";
+/** How often the server checks whether a new day started, for auto-tidy. */
+const dayWatchMs = 60_000;
+
 export const defaultClientDir = fileURLToPath(new URL("../../client/dist", import.meta.url));
 
 export interface ServerOptions {
@@ -66,22 +70,32 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let allowedHosts: ReadonlySet<string> = new Set();
   // Filled once the server listens and its URL is known.
   const mcpServers: McpServerConfig[] = [];
+  // eslint-disable-next-line prefer-const -- assigned below: the Chat is built with the policy that reads it.
+  let chat: Chat;
+  const continuity = new Continuity({ db, domain, settings, chat: () => chat, now });
   const interviewer = new Interviewer({
     contentDir,
     domain,
     practice,
     mcpServers: () => mcpServers,
+    briefings: continuity,
     now,
   });
   const drivers = cachedDrivers(options.drivers ?? acpDrivers(dataDir.root));
-  const chat = new Chat({
+  chat = new Chat({
     db,
     events,
     settings,
     interviewer,
     drivers: drivers.get,
     cardPrompt: (cardId) => practice.cardPrompt(cardId),
+    proposal: (proposalId) => continuity.proposal(proposalId),
+    sessions: continuity,
+    now,
   });
+  // Auto-tidy on a new day reaches open Canvases without waiting for a reload.
+  const dayWatch = setInterval(() => practice.archiveStale(), dayWatchMs);
+  dayWatch.unref();
   const grader = new Grader({ db, settings, drivers: drivers.get, contentDir });
   const runner = new PracticeRunner({ practice, grader, chat });
 
@@ -93,10 +107,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     domain,
     practice,
     runner,
+    continuity,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
-    mcp: createMcpHandler(createTools({ domain, practice, interviewer }), appVersion),
+    mcp: createMcpHandler(createTools({ domain, practice, interviewer, continuity }), appVersion),
     clientDir: options.clientDir ?? defaultClientDir,
   });
 
@@ -107,6 +122,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       serve({ fetch: app.fetch, hostname: loopbackHost, port: options.port, websocket: { server: wss } }, ready),
     );
   } catch (error) {
+    clearInterval(dayWatch);
     db.$client.close();
     throw error;
   }
@@ -127,6 +143,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     token: dataDir.token,
     mcpServer,
     close: async () => {
+      clearInterval(dayWatch);
       await chat.close();
       await runner.close();
       await drivers.dispose();

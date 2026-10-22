@@ -9,7 +9,9 @@ import {
   cardPaths,
   maxAnswerLength,
   practiceSetPaths,
+  proposalPaths,
   type AddQuestionResponse,
+  type HistoryResponse,
   type AgentsResponse,
   type ProgressResponse,
   type ServerEvent,
@@ -21,6 +23,7 @@ import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import { revealModes } from "../db/schema.ts";
 import { DomainError, type Domain } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
+import type { Continuity } from "../interviewer/continuity.ts";
 import type { PracticeRunner } from "../interviewer/practice-runner.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
@@ -35,6 +38,7 @@ export interface AppDeps {
   domain: Domain;
   practice: Practice;
   runner: PracticeRunner;
+  continuity: Continuity;
   settings: Settings;
   detectAgents: AgentDetector;
   events: EventBus;
@@ -150,6 +154,14 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) return c.json({ error: "Не указан режим оценок." }, 400);
     return domainResult(() => c.json(deps.practice.setReveal(idParam(c), body.data.reveal)));
   });
+
+  app.get(apiPaths.history, (c) =>
+    c.json({
+      entries: deps.practice.history().map((e) => ({ id: e.id, gradedAt: e.gradedAt.getTime(), set: e.set })),
+    } satisfies HistoryResponse),
+  );
+  app.post(proposalPaths.accept(":id"), (c) => domainResult(() => c.json(deps.continuity.acceptProposal(idParam(c)))));
+  app.post(proposalPaths.decline(":id"), (c) => domainResult(() => c.json(deps.continuity.declineProposal(idParam(c)))));
 
   app.get(apiPaths.agents, (c) =>
     c.json({ agents: deps.detectAgents(), settings: deps.settings.agentSettings() } satisfies AgentsResponse),

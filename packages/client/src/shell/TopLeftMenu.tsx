@@ -1,4 +1,4 @@
-// Top-left hamburger with the Preparation target switcher, «Новая цель», and settings, plus the
+// Top-left hamburger with the Preparation target switcher, «Новая цель», history, and settings, plus the
 // compact chip with the active target, readiness, and days left.
 import type { Commands } from "./commands.ts";
 import { MenuList } from "./ContextMenu.tsx";
@@ -87,7 +87,7 @@ export function TopLeftMenu({
             )}
           </div>
           <MenuSeparator />
-          <MenuList entries={[{ label: "Настройки", run: openSettings }]} close={close} />
+          <MenuList entries={[commandEntry(commands["history.open"]), { label: "Настройки", run: openSettings }]} close={close} />
         </div>
       )}
     </div>

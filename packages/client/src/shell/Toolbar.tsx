@@ -2,7 +2,8 @@
 import type { Command, CommandId, Commands } from "./commands.ts";
 import { commandEntry, type MenuEntry } from "./menu.ts";
 import { MenuList } from "./ContextMenu.tsx";
-import { comingSoonLabel, cx, Icon, MenuHeading } from "./ui.tsx";
+import { HistoryMenuSection } from "../history/HistoryView.tsx";
+import { comingSoonLabel, cx, Icon } from "./ui.tsx";
 
 const groups: CommandId[][] = [
   ["tool.select", "tool.hand"],
@@ -57,10 +58,12 @@ export function Toolbar({
             >
               <MenuList entries={more} close={() => setMoreOpen(false)} />
               <div role="separator" className="mx-2 my-1 h-px bg-stone-100" />
-              <MenuHeading>История · {comingSoonLabel}</MenuHeading>
-              <div className="px-2.5 pb-1.5 text-[12px] text-stone-400">
-                Итоги попадут сюда сами при новой подборке или на следующий день.
-              </div>
+              <HistoryMenuSection
+                openHistory={() => {
+                  setMoreOpen(false);
+                  commands["history.open"].run?.();
+                }}
+              />
             </div>
           )}
         </div>

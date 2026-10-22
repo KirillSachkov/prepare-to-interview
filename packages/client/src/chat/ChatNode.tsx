@@ -10,6 +10,7 @@ import {
 import { NodeResizer } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { agentLabels, type AgentId, type ChatMessage } from "@prepare-to-interview/shared";
+import { ProposalCard } from "./ProposalCard.tsx";
 import { AgentSettingsPanel } from "../settings/AgentSettingsPanel.tsx";
 import { focusCard } from "../practice/focus.ts";
 import { fetchAgents } from "./chat-api.ts";
@@ -153,6 +154,7 @@ function ChatBubble({ message }: { message: ChatMessage | undefined }) {
         }`}
       >
         {message.text || (message.status === "streaming" ? "…" : "")}
+        {message.proposal && <ProposalCard proposal={message.proposal} />}
         {message.toolCalls.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-xs text-stone-500">
             {message.toolCalls.map((call) => (
