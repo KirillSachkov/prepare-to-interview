@@ -1,6 +1,7 @@
 import { integer, primaryKey, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import {
   cardStatuses,
+  practiceModes,
   practiceSetKinds,
   questionTypes,
   revealModes,
@@ -201,7 +202,7 @@ export const activities = sqliteTable("activities", {
 
 // Practice (ADR-0004): Practice sets of Cards, Attempts, and Leitner scheduling.
 
-export const attemptModes = ["training", "mock"] as const;
+export const attemptModes = practiceModes;
 export type AttemptMode = (typeof attemptModes)[number];
 
 export const practiceSetStatuses = ["active", "grading", "graded", "abandoned"] as const;

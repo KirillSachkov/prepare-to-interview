@@ -99,8 +99,10 @@ export function createApp(deps: AppDeps): Hono {
   });
   app.post(apiPaths.newTarget, (c) => {
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
-    deps.domain.startActivity("onboarding", { newTarget: true });
-    return sendToChat(() => deps.chat.send(newTargetMessage));
+    return domainResult(() => {
+      deps.domain.startActivity("onboarding", { newTarget: true });
+      return sendToChat(() => deps.chat.send(newTargetMessage));
+    });
   });
   app.get(apiPaths.topics, (c) => c.json({ topics: deps.domain.topicNames() } satisfies TopicsResponse));
   app.post(apiPaths.questions, async (c) => {

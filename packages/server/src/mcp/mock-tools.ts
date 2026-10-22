@@ -80,7 +80,7 @@ export function mockTools({ mock, interviewer }: { mock: MockRunner; interviewer
       fixHint: "Call finish_mock_interview with no arguments while a Mock interview runs.",
       run: () => {
         const end = mock.finish("interviewer");
-        return { mock_interview_id: end.setId, questions: end.questions };
+        return { mock_interview_id: end.setId, questions: end.questionCount };
       },
       summarize: (o) =>
         `Ended the Mock interview after ${o.questions} questions. The Grader grades the answers; grades appear on the Cards and you receive the results. Tell the Candidate in one sentence.`,

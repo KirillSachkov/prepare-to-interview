@@ -3,11 +3,11 @@
 // server enforces, and grading of every answer only once the mock ends.
 import crypto from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
-import type { PracticeSetNode, QuestionType } from "@prepare-to-interview/shared";
+import type { MockInterviewView, PracticeSetNode, QuestionType } from "@prepare-to-interview/shared";
 import type { Database } from "../db/database.ts";
 import { cards, practiceSets, questions, topics, type MockFocus } from "../db/schema.ts";
 import { DomainError, type Domain, type PracticeQuestion } from "./domain.ts";
-import { mockFocusLabel, type GradingJob, type Practice } from "./practice.ts";
+import type { GradingJob, Practice } from "./practice.ts";
 
 /** Most Cards one Mock interview holds. */
 export const maxMockCards = 20;
@@ -55,15 +55,19 @@ export interface MockAnswer {
   /** The open answer; empty when the Candidate said they do not know. */
   answer: string;
   choices: number[];
+  /** The Candidate gave no answer («Не знаю»). */
+  dontKnow: boolean;
   followUpOf: string | null;
   minutesLeft: number;
+  /** The mock already ended, such as when its time ran out right after the answer. */
+  ended: boolean;
 }
 
 export interface MockEnd {
   setId: string;
   activityId: string;
   reason: MockEndReason;
-  questions: number;
+  questionCount: number;
   node: PracticeSetNode;
   jobs: GradingJob[];
 }
@@ -112,12 +116,26 @@ export class MockInterviews {
     return set?.deadline !== undefined && set.deadline !== null && set.deadline.getTime() <= this.#now().getTime();
   }
 
-  /** The answer the Candidate just gave on a Card of the running Mock interview; null for other Cards. */
+  /**
+   * The answer the Candidate gave on a Mock interview Card, also when the mock ended since (the
+   * time ran out before the Interviewer's turn); null for other Cards and once the Card is graded.
+   */
   answerContext(cardId: string): MockAnswer | null {
     const card = this.#db.select().from(cards).where(eq(cards.id, cardId)).get();
-    const set = card && this.#runningSet();
-    if (!card || !set || card.setId !== set.id || card.status !== "answered") return null;
+    const set = card && this.#db.select().from(practiceSets).where(eq(practiceSets.id, card.setId)).get();
+    // Once graded, a Card is discussed like any other.
+    if (!card || set?.mode !== "mock" || (card.status !== "answered" && card.status !== "grading")) return null;
     return this.#answer(set, card);
+  }
+
+  /**
+   * The latest answer of the running Mock interview while no Card awaits one, such as after the
+   * Interviewer's turn on it failed or was stopped; the next turn picks the interview up from it.
+   */
+  pendingAnswer(): MockAnswer | null {
+    const set = this.#runningSet();
+    const last = set && this.#cards(set.id).at(-1);
+    return set && last?.status === "answered" ? this.#answer(set, last) : null;
   }
 
   // Changes
@@ -129,6 +147,14 @@ export class MockInterviews {
         "A Mock interview is already running.",
         "Continue it with next_mock_question, or end it with finish_mock_interview.",
         { candidateMessage: "мок-интервью уже идёт." },
+      );
+    }
+    const unfinished = this.#practice.unfinished();
+    if (unfinished) {
+      throw new DomainError(
+        `The Candidate has an unsubmitted Practice set "${unfinished.title}" (${unfinished.answered} of ${unfinished.cards} Cards answered).`,
+        "Ask the Candidate to submit it first; start the Mock interview after that.",
+        { candidateMessage: "сначала отправьте текущую подборку." },
       );
     }
     const topics = input.focus.topics.map((name) => {
@@ -232,7 +258,7 @@ export class MockInterviews {
     const questionCount = this.#cards(set.id).length;
     const { node, jobs } = this.#practice.submit(set.id, { endingMock: true });
     this.#domain.completeActivity(set.activityId, `Mock interview (${mockFocusLabel(set.focus)}): ${questionCount} questions; ${endedBy[reason]}.`);
-    return { setId: set.id, activityId: set.activityId, reason, questions: questionCount, node, jobs };
+    return { setId: set.id, activityId: set.activityId, reason, questionCount, node, jobs };
   }
 
   // Internals
@@ -272,8 +298,10 @@ export class MockInterviews {
       options: question.options?.map((o) => o.text) ?? null,
       answer: card.draftText,
       choices: card.draftChoices,
+      dontKnow: question.type === "open" ? !card.draftText.trim() : !card.draftChoices.length,
       followUpOf: card.followUpOf,
-      minutesLeft: this.#minutesLeft(set),
+      minutesLeft: set.status === "active" ? this.#minutesLeft(set) : 0,
+      ended: set.status !== "active",
     };
   }
 
@@ -293,6 +321,18 @@ export class MockInterviews {
   #minutesLeft(set: SetRow): number {
     return Math.max(0, Math.ceil(((set.deadline?.getTime() ?? 0) - this.#now().getTime()) / minute));
   }
+}
+
+/** How a set shows as a Mock interview; null for a Practice set. */
+export function mockView(set: SetRow): MockInterviewView | null {
+  if (set.mode !== "mock") return null;
+  return { startedAt: set.createdAt.getTime(), finishedAt: set.submittedAt?.getTime() ?? null, focus: mockFocusLabel(set.focus) };
+}
+
+/** The Mock interview focus as the Candidate reads it. */
+export function mockFocusLabel(focus: MockFocus | null): string {
+  const parts = [...(focus?.topics ?? []), ...(focus?.weakSpots ? ["слабые места"] : [])];
+  return parts.length ? parts.join(", ") : "вся цель подготовки";
 }
 
 const endedBy: Record<MockEndReason, string> = {

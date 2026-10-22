@@ -36,7 +36,12 @@ export class MockRunner {
     this.#schedule();
   }
 
-  /** Runs once a Mock interview ended, before its answers are graded. */
+  /**
+   * The "Mock interview finished" Activity boundary: runs synchronously once a mock ended and its
+   * Activity completed, before its answers are graded. It can fire in the middle of an Interviewer
+   * turn (finish_mock_interview) or from the timer, so a listener that ends the Agent session must
+   * defer until the Chat is idle. Grades arrive later through `Practice.onGraded` and unreported results.
+   */
   onFinished(listener: (end: MockEnd) => void): void {
     this.#finishedListeners.push(listener);
   }
@@ -68,8 +73,7 @@ export class MockRunner {
   answer(cardId: string): PracticeSetNode {
     if (this.#enforceDeadline()) throw new DomainError("The Mock interview time is up.", "Reload the Canvas.", { candidateMessage: "время интервью вышло." });
     const { node, answer } = this.#mock.answer(cardId);
-    const blank = answer.type === "open" ? !answer.answer.trim() : !answer.choices.length;
-    this.#chat.send(blank ? mockDontKnowMessage : mockAnsweredMessage, { cardId });
+    this.#chat.send(answer.dontKnow ? mockDontKnowMessage : mockAnsweredMessage, { cardId });
     return node;
   }
 

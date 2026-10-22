@@ -312,6 +312,47 @@ describe("Mock interview turns", () => {
   });
 });
 
+describe("Activity boundaries around a mock", () => {
+  it("refuses other Activities and finish_activity while a mock runs, from the Interviewer and from the Canvas", async () => {
+    const h = await setUp([[tool("next_mock_question", { question: firstQuestion })]]);
+    await startMock(h);
+    for (const kind of ["practice_set", "onboarding"]) {
+      const started = await h.call("start_activity", { kind });
+      expect(started.isError).toBe(true);
+      expect(started.text).toContain("A Mock interview is running");
+      expect(started.text).toContain("finish_mock_interview");
+    }
+    const finished = await h.call("finish_activity", { status: "completed", summary: "Готово." });
+    expect(finished.isError).toBe(true);
+    expect(finished.text).toContain("Call finish_mock_interview");
+    expect(await api(h.server, apiPaths.newTarget)).toEqual({ status: 400, body: { error: "сначала завершите мок-интервью." } });
+    expect((await h.call("get_profile")).data.activity).toMatchObject({ kind: "mock_interview" });
+  });
+
+  it("refuses to start a mock over an unsubmitted Practice set", async () => {
+    const h = await setUp();
+    expect((await h.call("place_practice_set", { title: "Подборка", cards: [testQuestion] })).isError).toBe(false);
+    const rest = await api(h.server, apiPaths.mockRequest, { body: request({ durationMinutes: 20, focus: { kind: "target" } }) });
+    expect(rest).toEqual({ status: 400, body: { error: "сначала отправьте текущую подборку." } });
+    const viaTool = await h.call("start_mock_interview", { duration_minutes: 20 });
+    expect(viaTool.text).toContain('unsubmitted Practice set "Подборка"');
+    expect((await h.call("get_profile")).data.activity).toMatchObject({ kind: "practice_set" });
+  });
+
+  it("gives the Interviewer the last answer again when its turn on it failed", async () => {
+    const h = await setUp([[tool("next_mock_question", { question: firstQuestion })], [{ fail: new Error("agent crashed") }], [reply("Понял, продолжим.")]]);
+    const set = await startMock(h);
+    const cardId = set.data.cards[0]!.id;
+    await answerCard(h.server, cardId, { text: answer });
+    await settledChat(h.server);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Продолжим?" } });
+    await settledChat(h.server);
+    const retried = h.driver().prompts.at(-1)!;
+    expect(retried.text).toBe("Продолжим?");
+    expect(retried.context?.find((c) => c.uri === `app://context/mock-answer/${cardId}`)?.text).toContain(answer);
+  });
+});
+
 describe("Ending a Mock interview", () => {
   it("ends early: the Grader grades every answer, grades appear on the Cards, Attempts are mock, and Mastery moves", async () => {
     const h = await setUp([

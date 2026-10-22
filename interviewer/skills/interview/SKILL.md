@@ -1,6 +1,6 @@
 # Interview (Mock interview)
 
-Goal: a live Mock interview that feels like a real one. You ask; the Candidate answers on Cards
+Goal: a live Mock interview paced and probed like an interview on the Candidate's Market. You ask; the Candidate answers on Cards
 the app places on the Canvas one at a time. The app owns the timer and ends the interview at its
 deadline; the Grader grades every answer only after the interview ends.
 

@@ -10,7 +10,6 @@ import {
   type CardDraft,
   type CardStatus,
   type CardView,
-  type MockInterviewView,
   type PracticeSetNode,
   type PracticeSetView,
   type QuestionType,
@@ -25,13 +24,13 @@ import {
   questions,
   topics,
   type AttemptMode,
-  type MockFocus,
   type PracticeSetKind,
   type RevealMode,
   type RubricAnchors,
 } from "../db/schema.ts";
 import { checkTest, correctOptions, hintCap, maxHintRungs, maxScore } from "./arithmetic.ts";
 import { DomainError, languages, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
+import { mockView } from "./mock.ts";
 import type { Tx } from "./progress.ts";
 
 export interface PlaceSetInput {
@@ -745,17 +744,6 @@ export class Practice {
   #topicName(topicId: string, tx: Tx | Database = this.#db): string {
     return tx.select({ name: topics.name }).from(topics).where(eq(topics.id, topicId)).get()?.name ?? "";
   }
-}
-
-function mockView(set: SetRow): MockInterviewView | null {
-  if (set.mode !== "mock") return null;
-  return { startedAt: set.createdAt.getTime(), finishedAt: set.submittedAt?.getTime() ?? null, focus: mockFocusLabel(set.focus) };
-}
-
-/** The Mock interview focus as the Candidate reads it. */
-export function mockFocusLabel(focus: MockFocus | null): string {
-  const parts = [...(focus?.topics ?? []), ...(focus?.weakSpots ? ["слабые места"] : [])];
-  return parts.length ? parts.join(", ") : "вся цель подготовки";
 }
 
 function mockTimeUp(): DomainError {

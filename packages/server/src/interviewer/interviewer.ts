@@ -107,6 +107,8 @@ export class Interviewer {
     if (sendSkill) context.push({ uri: skillUri(activity.kind), text: skill });
     const results = this.#practice.unreported();
     for (const result of results) context.push({ uri: appContextUri(`practice-set/${result.setId}`), text: describeResult(result) });
+    const pending = !options.cardId && this.#mock.pendingAnswer();
+    if (pending) context.push({ uri: appContextUri(`mock-answer/${pending.cardId}`), text: describeMockAnswer(pending) });
     if (options.cardId) {
       const answer = this.#mock.answerContext(options.cardId);
       context.push(
@@ -189,7 +191,6 @@ function runningMock(mock: ReturnType<MockInterviews["running"]>): HiddenState["
 
 /** The Candidate's answer in a running Mock interview: the Interviewer reacts and asks the next question. */
 function describeMockAnswer(answer: MockAnswer): string {
-  const blank = answer.type === "open" ? !answer.answer.trim() : !answer.choices.length;
   return appContext("mock_answer", {
     mock_interview_id: answer.setId,
     card_id: answer.cardId,
@@ -199,10 +200,12 @@ function describeMockAnswer(answer: MockAnswer): string {
     question: answer.question,
     ...(answer.options && { options: answer.options, chosen: answer.choices }),
     answer: answer.type === "open" ? answer.answer : undefined,
-    said_dont_know: blank,
+    said_dont_know: answer.dontKnow,
     follow_up_of: answer.followUpOf,
     minutes_left: answer.minutesLeft,
-    note: blank
+    note: answer.ended
+      ? "The Mock interview has already ended: do not ask more questions. Say in one sentence that grades will appear on the Cards."
+      : answer.dontKnow
       ? "The Candidate said they do not know. React neutrally in one short sentence and move on to another Question with next_mock_question."
       : "React neutrally in one short sentence: no grade, no hint, no teaching. Then call next_mock_question: a follow-up with follow_up_of set to this card_id and a quote copied verbatim from the answer, or a new Question. End with finish_mock_interview when the focus is covered or time is nearly up.",
   });

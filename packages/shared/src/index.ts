@@ -148,8 +148,9 @@ export interface CardView {
   followUp: { cardId: string; quote: string } | null;
 }
 
-/** Practice sets are `training`; a Mock interview is a set in `mock` mode. */
-export type PracticeMode = "training" | "mock";
+/** Practice sets are `training`; a Mock interview is a set in `mock` mode. Attempts carry the same mode. */
+export const practiceModes = ["training", "mock"] as const;
+export type PracticeMode = (typeof practiceModes)[number];
 
 /** What a Mock interview shows in its header besides its Cards. */
 export interface MockInterviewView {
