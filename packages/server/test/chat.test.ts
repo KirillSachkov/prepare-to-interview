@@ -163,6 +163,16 @@ describe("Chat with the Interviewer", () => {
     ]);
   });
 
+  it("keeps text before and after a tool call as separate paragraphs, not glued words", async () => {
+    const { server } = await start({
+      claude: [[say("Понял."), { callTool: { server: "interview", tool: "get_progress", arguments: {} } }, say("Вопрос 2 — на "), say("холсте.")]],
+    });
+    await chooseAgent(server, "claude");
+    await send(server, "Дальше");
+    const { messages } = await settled(server);
+    expect(messages[1]?.text).toBe("Понял.\n\nВопрос 2 — на холсте.");
+  });
+
   it("keeps hidden state echoes out of the Chat, also after a restart", async () => {
     const dirs = makeTempDirs();
     cleanups.push(dirs.cleanup);

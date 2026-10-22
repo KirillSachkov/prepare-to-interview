@@ -90,6 +90,8 @@ interface Turn {
   reply?: ChatMessage;
   /** When the streaming reply text was last written to the database. */
   savedAt: number;
+  /** A tool call came after the last text: the next text is a new agent message. */
+  toolSinceText?: boolean;
   done: Promise<void>;
 }
 
@@ -313,8 +315,11 @@ export class Chat {
     switch (event.type) {
       case "message_chunk": {
         const reply = this.#reply(turn, live);
-        reply.text += event.text;
-        this.#deps.events.publish({ type: "chat.delta", messageId: reply.id, text: event.text });
+        // Agents send the text before and after a tool call as separate messages without a separator.
+        const text = turn.toolSinceText && reply.text && !/\s$/.test(reply.text) && !/^\s/.test(event.text) ? `\n\n${event.text}` : event.text;
+        turn.toolSinceText = false;
+        reply.text += text;
+        this.#deps.events.publish({ type: "chat.delta", messageId: reply.id, text });
         if (Date.now() - turn.savedAt >= saveIntervalMs) {
           turn.savedAt = Date.now();
           this.#deps.db.update(chatMessages).set({ text: reply.text }).where(eq(chatMessages.id, reply.id)).run();
@@ -323,6 +328,7 @@ export class Chat {
       }
       case "tool_call": {
         const reply = this.#reply(turn, live);
+        turn.toolSinceText = true;
         reply.toolCalls.push({
           id: event.toolCallId,
           title: event.title,
