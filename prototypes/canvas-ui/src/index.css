@@ -1,0 +1,47 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+body {
+  @apply bg-stone-100 text-stone-800 antialiased;
+}
+
+.react-flow__node {
+  cursor: default;
+}
+.react-flow__attribution {
+  display: none;
+}
+.focus-pulse {
+  animation: focusPulse 1.4s ease-out 2;
+}
+@keyframes focusPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(79 70 229 / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 16px rgb(79 70 229 / 0);
+  }
+}
+.fade-in {
+  animation: fadeIn 0.35s ease-out;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
