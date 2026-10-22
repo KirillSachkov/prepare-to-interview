@@ -71,6 +71,16 @@ export interface ShellControls {
   newTarget: () => void;
   /** Opens the dialog for the Candidate's own Question. */
   addQuestion: () => void;
+  /** Asks the Interviewer in the Chat for today's Practice set. */
+  practiceToday: () => void;
+  /** Opens the Topic picker for a Practice set by Topic. */
+  practiceTopic: () => void;
+  /** Asks the Interviewer in the Chat for a Quiz. */
+  quiz: () => void;
+  /** Submits the Practice set holding the focused Card, or the latest unsubmitted one. */
+  submitPractice: () => void;
+  /** Questions of the active Preparation target Due today. */
+  due: number | null;
 }
 
 export function buildCommands(c: ShellControls): Commands {
@@ -99,8 +109,10 @@ export function buildCommands(c: ShellControls): Commands {
       group: "Инструменты",
       icon: "set",
       hotkey: letter("P"),
+      run: c.practiceToday,
+      ...(c.due ? { badge: c.due } : {}),
     },
-    "practice.topic": { id: "practice.topic", label: "Подборка по теме…", group: "Инструменты" },
+    "practice.topic": { id: "practice.topic", label: "Подборка по теме…", group: "Инструменты", run: c.practiceTopic },
     "mock.start": { id: "mock.start", label: "Мок-интервью", group: "Инструменты", icon: "mock", hotkey: letter("M") },
     "research.start": {
       id: "research.start",
@@ -133,7 +145,7 @@ export function buildCommands(c: ShellControls): Commands {
       run: c.toggleChat,
       active: !c.chatHidden,
     },
-    "quiz.start": { id: "quiz.start", label: "Квиз", group: "Инструменты", hotkey: letter("Q") },
+    "quiz.start": { id: "quiz.start", label: "Квиз", group: "Инструменты", hotkey: letter("Q"), run: c.quiz },
     "question.custom": { id: "question.custom", label: "Вставить свой вопрос", group: "Карточки", run: c.addQuestion },
     "target.new": { id: "target.new", label: "+ Новая цель", group: "Инструменты", run: c.newTarget },
     "practice.submit": {
@@ -141,6 +153,7 @@ export function buildCommands(c: ShellControls): Commands {
       label: "Отправить подборку / ответить в моке",
       group: "Карточки",
       hotkey: { label: `${modLabel} ↵`, key: ["Enter"], mod: true },
+      run: c.submitPractice,
       whileTyping: true,
     },
     "zoom.in": {

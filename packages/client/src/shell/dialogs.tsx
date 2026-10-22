@@ -1,9 +1,11 @@
 import { useEffect, useId, useState, type SyntheticEvent } from "react";
+import type { TopicProgress } from "@prepare-to-interview/shared";
+import { fetchProgress } from "../practice/practice-api.ts";
 import { settingsSections } from "../settings/sections.ts";
 import type { CommandGroup, Commands } from "./commands.ts";
 import { modLabel } from "./hotkeys.ts";
 import { addOwnQuestion, fetchTopics } from "./target.ts";
-import { comingSoonLabel, Kbd, Modal } from "./ui.tsx";
+import { comingSoonLabel, Kbd, MenuRow, Modal } from "./ui.tsx";
 
 const groupOrder: CommandGroup[] = ["Инструменты", "Холст", "Карточки", "Вид"];
 
@@ -153,4 +155,44 @@ export function QuestionDialog({ close, added }: { close: () => void; added: (to
       </form>
     </Modal>
   );
+}
+
+/** Topics of the active Preparation target with their Mastery; choosing one asks for a Practice set on it. */
+export function TopicPracticeDialog({ close, choose }: { close: () => void; choose: (topic: string) => void }) {
+  const [topics, setTopics] = useState<TopicProgress[]>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    fetchProgress()
+      .then((progress) => setTopics(progress.topics))
+      .catch((e: unknown) => setError(`Не удалось загрузить темы: ${e instanceof Error ? e.message : String(e)}`));
+  }, []);
+
+  return (
+    <Modal title="Подборка по теме" close={close} width={420}>
+      {error && (
+        <p role="alert" className="text-[12.5px] text-red-700">
+          {error}
+        </p>
+      )}
+      {topics?.length === 0 && <p className="text-[13px] text-stone-500">У цели подготовки пока нет тем. Расскажите о ней Интервьюеру в чате.</p>}
+      <div className="max-h-80 space-y-0.5 overflow-y-auto">
+        {topics?.map((topic) => (
+          <MenuRow key={topic.name} hint={topic.mastery === null ? "не начата" : `${Math.round(topic.mastery * 100)}%`} onClick={() => choose(topic.name)}>
+            <span className="mr-2 h-2 w-2 shrink-0 rounded-full" style={{ background: heat(topic.mastery) }} />
+            {topic.name}
+            {topic.due > 0 && <span className="ml-2 text-[11px] text-stone-400">повторить {topic.due}</span>}
+          </MenuRow>
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** Mastery colour: grey for a never-touched Topic, then red, amber, green. */
+function heat(mastery: number | null): string {
+  if (mastery === null) return "#d6d3d1";
+  if (mastery < 0.4) return "#e11d48";
+  if (mastery < 0.7) return "#d97706";
+  return "#059669";
 }

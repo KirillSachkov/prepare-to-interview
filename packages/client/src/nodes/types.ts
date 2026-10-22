@@ -20,6 +20,8 @@ export interface NodeMenuContext {
   commands: Commands;
   /** The element right-clicked inside the node, to tell apart its parts (a Card inside a Practice set). */
   target: Element;
+  /** Shows a short message, such as why an action failed. */
+  notify: (message: string) => void;
 }
 
 export interface NodeTypeDefinition<K extends CanvasNodeKind> {

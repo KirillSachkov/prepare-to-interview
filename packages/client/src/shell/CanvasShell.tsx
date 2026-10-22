@@ -9,18 +9,20 @@ import {
   type FitViewOptions,
 } from "@xyflow/react";
 import { useEffect, useState } from "react";
-import { chatNodeId } from "@prepare-to-interview/shared";
-import { flowNodeTypes, nodeMenu, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
+import { chatNodeId, type PracticeRequest, type PracticeSetNode } from "@prepare-to-interview/shared";
+import { flowNodeTypes, nodeMenu, NotifyContext, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
+import { focusCardEvent } from "../practice/focus.ts";
+import { requestPractice, submitPracticeSet } from "../practice/practice-api.ts";
 import { buildCommands, type Commands, type Tool } from "./commands.ts";
 import { ContextMenu, type OpenMenu } from "./ContextMenu.tsx";
 import { ControlPanel, type ControlPanelPopover } from "./ControlPanel.tsx";
-import { QuestionDialog, SettingsDialog, ShortcutsDialog } from "./dialogs.tsx";
+import { QuestionDialog, SettingsDialog, ShortcutsDialog, TopicPracticeDialog } from "./dialogs.tsx";
 import { isTyping, matchesHotkey } from "./hotkeys.ts";
 import { commandEntry, type MenuEntry } from "./menu.ts";
 import { comingSoonLabel, cx, Kbd } from "./ui.tsx";
 import { useCanvasNodes } from "./useCanvasNodes.ts";
 import { usePersistentState } from "./usePersistentState.ts";
-import { startNewTarget } from "./target.ts";
+import { startNewTarget, useTargets } from "./target.ts";
 import { ZoomPill } from "./ZoomPill.tsx";
 
 /** Keeps fitted content clear of the floating toolbar and the bottom controls. */
@@ -28,7 +30,12 @@ const fitPadding = { top: "120px", bottom: "72px", left: "48px", right: "48px" }
 const fitOptions: FitViewOptions = { padding: fitPadding, maxZoom: 1 };
 const zoomDuration = { duration: 150 };
 
-type Dialog = "shortcuts" | "settings" | "question";
+type Dialog = "shortcuts" | "settings" | "question" | "topic";
+
+/** The Practice set node a Card belongs to. */
+function setOfCard(nodes: FlowNode[], cardId: string): FlowNode | undefined {
+  return nodes.find((n) => n.type === "practice_set" && (n.data.content as PracticeSetNode["data"]).cards.some((c) => c.id === cardId));
+}
 
 export function CanvasShell() {
   const rf = useReactFlow<FlowNode>();
@@ -42,10 +49,18 @@ export function CanvasShell() {
   const [popover, setPopover] = useState<ControlPanelPopover | null>(null);
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const { active: activeTarget } = useTargets();
 
   const showChat = () => {
     setFocusRequest(chatNodeId);
     setChatHidden(false);
+  };
+
+  const askForPractice = (body: PracticeRequest) => {
+    setDialog(null);
+    requestPractice(body)
+      .then(showChat)
+      .catch((e: unknown) => setNotice(`Не удалось попросить подборку: ${e instanceof Error ? e.message : String(e)}`));
   };
 
   const commands: Commands = buildCommands({
@@ -73,6 +88,21 @@ export function CanvasShell() {
         .catch(() => setNotice("Не удалось начать новую цель. Если Интервьюер ещё отвечает, дождитесь ответа или остановите его."));
     },
     addQuestion: () => setDialog("question"),
+    practiceToday: () => askForPractice({ kind: "today" }),
+    practiceTopic: () => setDialog("topic"),
+    quiz: () => askForPractice({ kind: "quiz" }),
+    submitPractice: () => {
+      const focusedSet = document.activeElement?.closest<HTMLElement>("[data-set-id]")?.dataset.setId;
+      const sets = nodes.filter((n) => n.type === "practice_set");
+      const node =
+        sets.find((n) => n.id === focusedSet) ??
+        sets.findLast((n) => !n.data.collapsed && (n.data.content as PracticeSetNode["data"]).status === "active");
+      const content = node?.data.content as PracticeSetNode["data"] | undefined;
+      if (!node || content?.status !== "active") return;
+      submitPracticeSet({ id: node.id, kind: "practice_set", position: node.position, collapsed: node.data.collapsed, data: content })
+        .catch((e: unknown) => setNotice(`Не удалось отправить подборку: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    due: activeTarget?.due ?? null,
     escape: () => {
       setMenu(null);
       setDialog(null);
@@ -104,6 +134,16 @@ export function CanvasShell() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // A Card chip in the Chat brings its Practice set into view.
+  useEffect(() => {
+    const onFocusCard = (event: Event) => {
+      const node = setOfCard(rf.getNodes(), (event as CustomEvent<string>).detail);
+      if (node) void rf.fitView({ ...fitOptions, nodes: [{ id: node.id }], duration: 300 });
+    };
+    window.addEventListener(focusCardEvent, onFocusCard);
+    return () => window.removeEventListener(focusCardEvent, onFocusCard);
+  }, [rf]);
+
   // Showing the Chat brings it into view once React Flow has rendered it.
   useEffect(() => {
     if (!focusRequest) return;
@@ -121,6 +161,7 @@ export function CanvasShell() {
   const paneMenu: MenuEntry[] = [
     commandEntry(commands["practice.today"]),
     commandEntry(commands["practice.topic"]),
+    commandEntry(commands["quiz.start"]),
     commandEntry(commands["mock.start"]),
     commandEntry(commands["question.custom"]),
     "separator",
@@ -135,6 +176,7 @@ export function CanvasShell() {
 
   return (
     <SetCollapsedContext value={setCollapsed}>
+      <NotifyContext value={setNotice}>
       <div
         className={cx("canvas-shell relative h-full overflow-hidden bg-[#f7f6f3]", tool === "hand" && "tool-hand")}
         onMouseDown={() => setPopover(null)}
@@ -176,7 +218,7 @@ export function CanvasShell() {
             // Text fields keep the browser's own menu (copy, paste, spelling).
             if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
             event.preventDefault();
-            const own = nodeMenu(node, { commands, target: event.target as Element }, setCollapsed);
+            const own = nodeMenu(node, { commands, target: event.target as Element, notify: setNotice }, setCollapsed);
             openMenu(event, own ? node.type : "canvas", own ?? paneMenu);
           }}
         >
@@ -232,6 +274,7 @@ export function CanvasShell() {
         {menu && <ContextMenu menu={menu} close={() => setMenu(null)} />}
         {dialog === "shortcuts" && <ShortcutsDialog commands={commands} close={() => setDialog(null)} />}
         {dialog === "settings" && <SettingsDialog close={() => setDialog(null)} />}
+        {dialog === "topic" && <TopicPracticeDialog close={() => setDialog(null)} choose={(topic) => askForPractice({ kind: "topic", topic })} />}
         {dialog === "question" && (
           <QuestionDialog
             close={() => setDialog(null)}
@@ -242,6 +285,7 @@ export function CanvasShell() {
           />
         )}
       </div>
+      </NotifyContext>
     </SetCollapsedContext>
   );
 }

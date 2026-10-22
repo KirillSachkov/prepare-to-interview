@@ -29,8 +29,32 @@ export async function agentTurn(baseURL: string, turn: FakeTurn): Promise<void> 
   await session.close();
 }
 
-export const placeNote = (baseURL: string, title: string) =>
-  agentTurn(baseURL, [{ callTool: { server: "interview", tool: "demo_place_note", arguments: { title } } }]);
+/**
+ * Places a Practice set as the Interviewer does; an unsubmitted set left by an earlier test is
+ * dropped, since tests share one Canvas.
+ */
+export const placePracticeSet = (baseURL: string, set: Record<string, unknown>) =>
+  agentTurn(baseURL, [
+    { callTool: { server: "interview", tool: "place_practice_set", arguments: { replace_unfinished: true, ...set } } },
+  ]);
+
+/** A Quiz of one test Card, the smallest node to place on the Canvas. */
+export const placeQuiz = (baseURL: string, title: string) =>
+  placePracticeSet(baseURL, {
+    title,
+    kind: "quiz",
+    cards: [
+      {
+        topic: "SQL",
+        prompt: `${title}: какой индекс PostgreSQL создаёт по умолчанию?`,
+        type: "single_choice",
+        options: [
+          { text: "B-tree", correct: true },
+          { text: "Hash", correct: false },
+        ],
+      },
+    ],
+  });
 
 /** Creates a Preparation target through the MCP tool, as the Interviewer does in onboarding. */
 export const saveTarget = (baseURL: string, target: Record<string, unknown>) =>

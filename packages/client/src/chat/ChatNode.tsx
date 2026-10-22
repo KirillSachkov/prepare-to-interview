@@ -11,6 +11,7 @@ import { NodeResizer } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { agentLabels, type AgentId, type ChatMessage } from "@prepare-to-interview/shared";
 import { AgentSettingsPanel } from "../settings/AgentSettingsPanel.tsx";
+import { focusCard } from "../practice/focus.ts";
 import { fetchAgents } from "./chat-api.ts";
 import { useChat } from "./useChat.ts";
 
@@ -133,8 +134,19 @@ function ChatBubble({ message }: { message: ChatMessage | undefined }) {
     );
   }
   const mine = message.role === "candidate";
+  const card = message.card;
   return (
     <MessagePrimitive.Root className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
+      {card && (
+        <button
+          type="button"
+          title="Показать карточку"
+          onClick={() => focusCard(card.id)}
+          className="mb-1 max-w-[85%] truncate rounded-md border border-indigo-100 bg-indigo-50/60 px-2 py-1 text-left text-[11px] text-indigo-700 hover:bg-indigo-50"
+        >
+          ↗ {card.prompt}
+        </button>
+      )}
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
           mine ? "bg-stone-800 text-white" : "bg-stone-100 text-stone-900"

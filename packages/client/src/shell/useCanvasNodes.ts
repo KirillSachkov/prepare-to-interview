@@ -4,15 +4,19 @@ import { applyNodeChanges, type NodeChange } from "@xyflow/react";
 import { useCallback, useEffect, useState } from "react";
 import type { CanvasNode, LayoutUpdate, NodeLayoutEntry } from "@prepare-to-interview/shared";
 import { fetchCanvas, saveLayout, subscribeToEvents } from "../api.ts";
-import { toFlowNode, withCollapsed, type FlowNode } from "../nodes/flow.tsx";
+import { toFlowNode, withCollapsed, withContent, type FlowNode } from "../nodes/flow.tsx";
 
-/** Adds nodes not shown yet and refreshes the layout of known ones; the server is the source of truth. */
-function mergeNodes(current: FlowNode[], incoming: CanvasNode[]): FlowNode[] {
+/**
+ * Adds nodes not shown yet and refreshes the content and layout of known ones; with `complete`,
+ * the incoming list is the whole Canvas and nodes missing from it go. The server is the source of truth.
+ */
+function mergeNodes(current: FlowNode[], incoming: CanvasNode[], complete = false): FlowNode[] {
   const byId = new Map(incoming.map((n) => [n.id, n]));
   const known = new Set(current.map((n) => n.id));
-  const updated = current.map((n) => {
+  const updated = current.flatMap((n) => {
     const fresh = byId.get(n.id);
-    return fresh ? withLayout(n, { nodeId: n.id, position: fresh.position, collapsed: fresh.collapsed }) : n;
+    if (!fresh) return complete ? [] : [n];
+    return [withLayout(withContent(n, fresh), { nodeId: n.id, position: fresh.position, collapsed: fresh.collapsed })];
   });
   const added = incoming.filter((n) => !known.has(n.id)).map(toFlowNode);
   return [...updated, ...added];
@@ -45,7 +49,7 @@ export function useCanvasNodes() {
           fetchCanvas()
             .then((snapshot) => {
               setError(undefined);
-              setNodes((current) => mergeNodes(current, snapshot.nodes));
+              setNodes((current) => mergeNodes(current, snapshot.nodes, true));
             })
             .catch((e: unknown) => setError(String(e)));
         },
@@ -53,6 +57,12 @@ export function useCanvasNodes() {
           switch (event.type) {
             case "canvas.node_added":
               setNodes((current) => mergeNodes(current, [event.node]));
+              break;
+            case "canvas.node_updated":
+              setNodes((current) => current.map((n) => (n.id === event.node.id ? withContent(n, event.node) : n)));
+              break;
+            case "canvas.node_removed":
+              setNodes((current) => current.filter((n) => n.id !== event.nodeId));
               break;
             case "canvas.layout_changed":
               setNodes((current) => applyLayouts(current, event.layouts));

@@ -21,7 +21,7 @@ export function Toolbar({
 }) {
   const grid = commands["view.grid"];
   const more: MenuEntry[] = [
-    commandEntry(commands["quiz.start"], "Квиз на 4 теста"),
+    commandEntry(commands["quiz.start"]),
     commandEntry(commands["view.fitAll"]),
     commandEntry(grid, `Сетка: ${grid.active ? "вкл" : "выкл"}`),
     commandEntry(commands["view.zen"]),

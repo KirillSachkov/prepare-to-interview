@@ -76,10 +76,11 @@ export class PracticeRunner {
 export function summary(result: SetResult): string {
   const checked = result.kind === "quiz" ? "Квиз проверен" : "Подборка проверена";
   const lines = [`${checked}: «${result.title}» — ${result.score} из ${result.max}.`];
-  const strong = result.cards.filter((c) => c.status === "graded" && c.score === 3);
-  const weak = result.cards.filter((c) => c.status === "graded" && (c.score ?? 0) <= 1);
-  if (strong.length) lines.push(`Уверенно: ${unique(strong.map((c) => c.topic)).join(", ")}.`);
-  if (weak.length) lines.push(`Стоит повторить: ${unique(weak.map((c) => c.topic)).join(", ")}.`);
+  // A Topic with any weak answer needs repetition; only Topics answered fully are strong.
+  const weak = unique(result.cards.filter((c) => c.status === "graded" && (c.score ?? 0) <= 1).map((c) => c.topic));
+  const strong = unique(result.cards.filter((c) => c.status === "graded" && c.score === 3).map((c) => c.topic)).filter((t) => !weak.includes(t));
+  if (strong.length) lines.push(`Уверенно: ${strong.join(", ")}.`);
+  if (weak.length) lines.push(`Стоит повторить: ${weak.join(", ")}.`);
   if (result.skipped) lines.push(`Пропущено: ${result.skipped}.`);
   lines.push("Оценки и разбор — на карточках; нажмите «Обсудить», чтобы разобрать ответ.");
   return lines.join(" ");

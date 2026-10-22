@@ -28,6 +28,11 @@ export function toFlowNode(node: CanvasNode): FlowNode {
   };
 }
 
+/** Takes a node's fresh content from the server; position, selection, and size stay. */
+export function withContent(node: FlowNode, fresh: CanvasNode): FlowNode {
+  return node.data.content === fresh.data ? node : { ...node, data: { ...node.data, content: fresh.data } };
+}
+
 /** Applies the collapsed state; an expanded node gets its type's size back, a collapsed one fits its content. */
 export function withCollapsed(node: FlowNode, collapsed: boolean): FlowNode {
   if (node.data.collapsed === collapsed) return node;
@@ -35,6 +40,9 @@ export function withCollapsed(node: FlowNode, collapsed: boolean): FlowNode {
   const { width: _width, height: _height, style: _style, ...rest } = node;
   return { ...rest, ...(size && { style: size }), data: { ...node.data, collapsed } };
 }
+
+/** Lets node views show a short message, such as why an action failed. */
+export const NotifyContext = createContext<(message: string) => void>(() => undefined);
 
 /** Lets node views store their collapsed state without knowing the layout store. */
 export const SetCollapsedContext = createContext<(nodeId: string, collapsed: boolean) => void>(() => undefined);

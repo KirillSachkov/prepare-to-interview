@@ -1,7 +1,7 @@
 // The Canvas shell (ticket #4, prototype variant A): chrome, navigation, hotkeys, context menus,
 // layout persistence, Zen mode, culling, and zoomed-out summaries.
 import type { Locator, Page } from "@playwright/test";
-import { expect, openCanvas, placeNote, resetChatLayout, test } from "./fixtures.ts";
+import { expect, openCanvas, placeQuiz, resetChatLayout, test } from "./fixtures.ts";
 
 const toolbar = (page: Page) => page.getByRole("toolbar", { name: "Панель инструментов" });
 const zoomLabel = (page: Page) => page.getByRole("button", { name: "Сбросить масштаб" });
@@ -40,8 +40,9 @@ test("chrome matches variant A", async ({ page }) => {
     await expect(bar.getByRole("button", { name, exact: true })).toBeVisible();
   }
   await expect(bar.getByRole("button", { name: "Выделение" })).toHaveAttribute("aria-pressed", "true");
-  // Later tickets implement the activity actions; until then they read as "coming soon".
-  await expect(bar.getByRole("button", { name: "Подборка на сегодня" })).toBeDisabled();
+  // Later tickets implement the remaining activity actions; until then they read as "coming soon".
+  await expect(bar.getByRole("button", { name: "Подборка на сегодня" })).toBeEnabled();
+  await expect(bar.getByRole("button", { name: "Мок-интервью" })).toBeDisabled();
   await bar.getByRole("button", { name: "Мок-интервью" }).hover({ force: true });
   await expect(page.getByRole("tooltip").filter({ hasText: "Мок-интервью · скоро" })).toBeVisible();
   await expect(page.getByText("Чтобы двигать холст, зажмите колесо мыши или пробел, либо выберите руку (H)")).toBeVisible();
@@ -60,7 +61,7 @@ test("chrome matches variant A", async ({ page }) => {
 
   await page.getByRole("button", { name: "Ещё" }).click();
   const more = page.getByRole("menu", { name: "Ещё" });
-  await expect(more.getByRole("menuitem", { name: /Квиз/ })).toBeDisabled();
+  await expect(more.getByRole("menuitem", { name: /Квиз/ })).toBeEnabled();
   await expect(more.getByRole("menuitem", { name: /Показать всё/ })).toBeEnabled();
 
   await expect(page.getByRole("button", { name: "Чат", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -100,8 +101,8 @@ test("mouse navigation: scroll pans, modifier-scroll zooms, space, middle, and H
 });
 
 test("Select tool marquee-selects nodes; Shift+1 fits all and Shift+2 fits the selection", async ({ page, baseURL }) => {
-  await placeNote(baseURL!, "Marquee target");
-  const note = page.locator(".react-flow__node-demo_note").filter({ hasText: "Marquee target" });
+  await placeQuiz(baseURL!, "Marquee target");
+  const note = page.locator(".react-flow__node-practice_set").filter({ hasText: "Marquee target" });
   await page.keyboard.press("Shift+Digit1");
   await expect(note).toBeVisible();
 
@@ -154,8 +155,8 @@ test("tool, grid, Chat, Zen, and shortcuts hotkeys", async ({ page }) => {
   await expect(chatNode(page)).toContainText("Агент для программирования");
   await page.mouse.click(emptySpot.x, emptySpot.y);
 
-  await page.keyboard.press("p");
-  await expect(page.getByRole("status")).toHaveText("«Подборка на сегодня» — скоро");
+  await page.keyboard.press("m");
+  await expect(page.getByRole("status")).toHaveText("«Мок-интервью» — скоро");
 
   await page.keyboard.press("Alt+KeyZ");
   await expect(toolbar(page)).toHaveCount(0);
@@ -213,7 +214,7 @@ test("hotkeys never fire while typing in an input, textarea, or contenteditable"
 test("context menus depend on the target under the cursor", async ({ page, baseURL }) => {
   await page.mouse.click(emptySpot.x, emptySpot.y, { button: "right" });
   const pane = menu(page, "canvas");
-  await expect(pane.getByRole("menuitem", { name: /Подборка на сегодня/ })).toBeDisabled();
+  await expect(pane.getByRole("menuitem", { name: /Подборка на сегодня/ })).toBeEnabled();
   await expect(pane.getByRole("menuitem", { name: /Мок-интервью/ })).toBeDisabled();
   await expect(pane.getByRole("menuitem", { name: /Показать всё/ })).toBeEnabled();
   await pane.getByRole("menuitem", { name: /Сетка: выключить/ }).click();
@@ -237,14 +238,18 @@ test("context menus depend on the target under the cursor", async ({ page, baseU
   await menu(page, "chat").getByRole("menuitem", { name: "Развернуть" }).click();
   await expect(chatNode(page)).toContainText("Агент не выбран");
 
-  // A node type without its own items falls back to the Canvas menu.
-  await placeNote(baseURL!, "Menu fallback");
-  const note = page.locator(".react-flow__node-demo_note").filter({ hasText: "Menu fallback" });
+  // A Practice set has its own items; a Card inside it adds the Card's actions.
+  await placeQuiz(baseURL!, "Menu target");
+  const set = page.locator(".react-flow__node-practice_set").filter({ hasText: "Menu target" });
   await page.keyboard.press("Shift+Digit1");
-  await note.click({ button: "right" });
-  await expect(menu(page, "canvas")).toBeVisible();
+  await set.getByText("Menu target", { exact: true }).click({ button: "right" });
+  await expect(menu(page, "practice_set").getByRole("menuitem", { name: "Отправить" })).toBeVisible();
+  await expect(menu(page, "practice_set").getByRole("menuitem", { name: "Пропустить" })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  await expect(menu(page, "canvas")).toHaveCount(0);
+  await set.getByText("какой индекс").click({ button: "right" });
+  await expect(menu(page, "practice_set").getByRole("menuitem", { name: "Пропустить" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu(page, "practice_set")).toHaveCount(0);
 });
 
 test("dragged node positions persist across reload", async ({ page }) => {
@@ -268,8 +273,8 @@ test("dragged node positions persist across reload", async ({ page }) => {
 });
 
 test("only visible nodes render, and zoomed-out nodes show summaries", async ({ page, baseURL }) => {
-  await placeNote(baseURL!, "Culling probe");
-  const note = page.locator(".react-flow__node-demo_note").filter({ hasText: "Culling probe" });
+  await placeQuiz(baseURL!, "Culling probe");
+  const note = page.locator(".react-flow__node-practice_set").filter({ hasText: "Culling probe" });
   await page.keyboard.press("Shift+Digit1");
   await expect(note).toBeVisible();
 
