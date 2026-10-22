@@ -14,6 +14,8 @@ export interface BankRouteDeps {
   chat: Chat;
   /** MCP endpoint of hidden Research sessions, with only the Research tools. */
   researchMcp: McpHandler;
+  /** Research waits while a Mock interview runs, like every other Activity. */
+  mockRunning: () => boolean;
 }
 
 const reviewRequest = z.strictObject({
@@ -35,6 +37,7 @@ const busyMessage = "Интервьюер ещё отвечает: дождит�
 
 export function registerBankRoutes(app: Hono, deps: BankRouteDeps): void {
   app.post(bankPaths.researchMcp, (c) => deps.researchMcp(c.req.raw));
+  app.on(["GET", "DELETE"], bankPaths.researchMcp, (c) => c.text("Stateless MCP endpoint: use POST", 405));
   app.get(bankPaths.skillMap, (c) => c.json(deps.bank.skillMap()));
   app.get(bankPaths.topic(":id"), (c) => domainResult(() => c.json(deps.bank.topicDetail(c.req.param("id") ?? ""))));
   app.get(bankPaths.bank, (c) => c.json(deps.bank.bank()));
@@ -57,6 +60,7 @@ export function registerBankRoutes(app: Hono, deps: BankRouteDeps): void {
   });
   app.post(bankPaths.researchRequest, (c) => {
     if (deps.chat.busy) return c.json({ error: busyMessage }, 409);
+    if (deps.mockRunning()) return c.json({ error: "сначала завершите мок-интервью." }, 409);
     try {
       return c.json({ message: deps.chat.send(researchRequestMessage) }, 202);
     } catch (error) {

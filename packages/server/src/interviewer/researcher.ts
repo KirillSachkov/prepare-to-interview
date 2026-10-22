@@ -140,7 +140,10 @@ export class Researcher {
     };
   }
 
-  /** Read through a call: shutdown can begin while a batch awaits the agent. */
+  /**
+   * Whether shutdown began. A method rather than the field, so TypeScript does not narrow the flag
+   * across the awaits of a running batch, during which shutdown can begin.
+   */
   #stopping(): boolean {
     return this.#closing;
   }

@@ -352,6 +352,8 @@ describe("Research Activity", () => {
     cleanups.push(() => researchClient.close());
     expect((await researchClient.listTools()).tools.map((t) => t.name).sort()).toEqual(["archive_source", "propose_questions", "save_note", "search"]);
     expect((await researchClient.callTool({ name: "review_proposed", arguments: { action: "approve", all: true } })).isError).toBe(true);
+    // It reads web pages, so the Candidate's Chat transcripts stay out of its search.
+    expect((await researchClient.callTool({ name: "search", arguments: { query: "PostgreSQL", kinds: ["transcript"] } })).isError).toBe(true);
     // The brief fences the vacancy and the Candidate's material as archived data.
     expect(session.input.text).toContain("<focus>\nPostgreSQL для Middle\n</focus>");
     expect(session.input.text).toMatch(/<source_data source_id="[\w-]+" kind="vacancy: Go-разработчик в финтех">\nТребования: PostgreSQL, индексы, транзакции, Kafka\.\n<\/source_data>/);
@@ -435,6 +437,16 @@ describe("Research Activity", () => {
     expect(queue.count).toBe(0);
     expect((await second.call("start_research", {})).isError).toBe(false);
     await expect.poll(async () => (await get<ChatSnapshot>(second.server, apiPaths.chat)).messages.at(-1)?.text).toBe("Исследование завершено: нового для банка не нашлось.");
+  });
+
+  it("waits while a Mock interview runs", async () => {
+    const h = await withTarget();
+    expect((await h.call("start_mock_interview", { duration_minutes: 20 })).isError).toBe(false);
+    const viaTool = await h.call("start_research", {});
+    expect(viaTool.isError).toBe(true);
+    expect(viaTool.text).toContain("A Mock interview is running");
+    expect(await api(h.server, bankPaths.researchRequest)).toEqual({ status: 409, body: { error: "сначала завершите мок-интервью." } });
+    expect(h.research).toEqual([]);
   });
 
   it("needs a Preparation target", async () => {

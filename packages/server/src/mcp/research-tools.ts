@@ -1,7 +1,7 @@
 // MCP tools of Research and the Question bank: start a Research batch, archive Sources, keep notes,
 // search, propose Topics and Questions, and review the Proposed queue on the Candidate's word.
 import { z } from "zod";
-import { searchKinds } from "@prepare-to-interview/shared";
+import { searchKinds, type SearchKind } from "@prepare-to-interview/shared";
 import { questionTypes, sourceKinds, topicPriorities } from "../db/schema.ts";
 import { maxHintRungs } from "../domain/arithmetic.ts";
 import type { Bank } from "../domain/bank.ts";
@@ -26,9 +26,21 @@ const sourceIds = z.array(z.string().min(1)).max(20);
 const sourceOutput = z.strictObject({ source_id: z.string(), kind: z.string(), url: z.string().nullable(), title: z.string().nullable() });
 
 /** Tools a hidden Research session gets: it gathers and proposes, but never approves or changes the Chat's work. */
-export const researchSessionTools: readonly string[] = ["search", "archive_source", "save_note", "propose_questions"];
+const sessionToolNames = new Set(["search", "archive_source", "save_note", "propose_questions"]);
 
-export function createResearchTools({ domain, bank, archive, search, researcher }: ResearchToolDeps): ToolDefinition[] {
+/**
+ * What a hidden Research session may search: it reads web pages, so the Candidate's Chat
+ * transcripts stay out of its reach.
+ */
+const sessionSearchKinds = searchKinds.filter((k) => k !== "transcript");
+
+/** The Research tools of the Chat's MCP server, or with `session` the narrower set of a hidden Research session. */
+export function createResearchTools(deps: ResearchToolDeps, options: { session?: boolean } = {}): ToolDefinition[] {
+  const tools = allResearchTools(deps, options.session ? sessionSearchKinds : searchKinds);
+  return options.session ? tools.filter((t) => sessionToolNames.has(t.name)) : tools;
+}
+
+function allResearchTools({ domain, bank, archive, search, researcher }: ResearchToolDeps, kinds: readonly SearchKind[]): ToolDefinition[] {
   return [
     defineTool({
       name: "start_research",
@@ -105,19 +117,20 @@ export function createResearchTools({ domain, bank, archive, search, researcher 
 
     defineTool({
       name: "search",
-      title: "Search the bank, notes, Sources, and transcripts",
-      description:
-        "Full-text search in Russian and English over the Question bank (Questions and Reference answers), Research notes, archived Sources, and Chat transcripts, best match first. Use it before proposing Questions, to build on earlier Research, and to recall what the Candidate said.",
+      title: kinds.includes("transcript") ? "Search the bank, notes, Sources, and transcripts" : "Search the bank, notes, and Sources",
+      description: kinds.includes("transcript")
+        ? "Full-text search in Russian and English over the Question bank (Questions and Reference answers), Research notes, archived Sources, and Chat transcripts, best match first. Use it before proposing Questions, to build on earlier Research, and to recall what the Candidate said."
+        : "Full-text search in Russian and English over the Question bank (Questions and Reference answers), Research notes, and archived Sources, best match first. Use it before proposing Questions and to build on earlier Research.",
       input: z.strictObject({
         query: shortText(500),
-        kinds: z.array(z.enum(searchKinds)).max(4).optional().describe("Limit to these kinds; all by default."),
+        kinds: z.array(z.enum(kinds as [SearchKind, ...SearchKind[]])).max(4).optional().describe("Limit to these kinds; all by default."),
         limit: z.number().int().min(1).max(50).default(10),
       }),
       output: z.strictObject({
         hits: z.array(z.strictObject({ kind: z.enum(searchKinds), id: z.string(), title: z.string(), snippet: z.string(), detail: z.string().nullable() })),
       }),
       fixHint: 'Pass {"query": "индексы PostgreSQL", "kinds": ["question", "note"], "limit": 10}.',
-      run: (input) => ({ hits: search.search(input.query, { ...(input.kinds && { kinds: input.kinds }), limit: input.limit }) }),
+      run: (input) => ({ hits: search.search(input.query, { kinds: input.kinds?.length ? input.kinds : kinds, limit: input.limit }) }),
       summarize: (o) =>
         o.hits.length
           ? o.hits.map((h, i) => `${i + 1}. [${h.kind}] ${h.id}${h.detail ? ` (${h.detail})` : ""}: ${h.title}\n   ${h.snippet}`).join("\n")

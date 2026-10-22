@@ -21,7 +21,7 @@ import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
 import { createApp } from "./http/app.ts";
 import { createMcpHandler, mcpServerName } from "./mcp/handler.ts";
-import { createResearchTools, researchSessionTools } from "./mcp/research-tools.ts";
+import { createResearchTools } from "./mcp/research-tools.ts";
 import { createTools } from "./mcp/tools.ts";
 import { Researcher } from "./interviewer/researcher.ts";
 import { ResearchArchive } from "./research/archive.ts";
@@ -115,7 +115,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   late.researcher = research;
   const mock = new MockRunner({ mock: mockInterviews, runner, chat, now });
 
-  const researchTools = createResearchTools({ domain, bank, archive, search, researcher: research });
+  const researchDeps = { domain, bank, archive, search, researcher: research };
   const app = createApp({
     token: dataDir.token,
     allowedHosts: () => allowedHosts,
@@ -129,16 +129,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
     mcp: createMcpHandler(
-      [...createTools({ domain, practice, interviewer, mock }), ...researchTools],
+      [...createTools({ domain, practice, interviewer, mock }), ...createResearchTools(researchDeps)],
       appVersion,
     ),
     bankRoutes: {
       bank,
       search,
-      researchMcp: createMcpHandler(
-        researchTools.filter((t) => researchSessionTools.includes(t.name)),
-        appVersion,
-      ),
+      researchMcp: createMcpHandler(createResearchTools(researchDeps, { session: true }), appVersion),
+      mockRunning: () => mock.running() !== null,
     },
     clientDir: options.clientDir ?? defaultClientDir,
   });

@@ -250,10 +250,12 @@ export class Domain {
 
   /**
    * Starts a background Activity, a Research batch, beside the Chat's Activity; at most one runs.
-   * Returns `null` while one is still running.
+   * Returns `null` while one is still running; refused while a Mock interview runs.
    */
   startBackgroundActivity(kind: "research", targetId: string): Activity | null {
     return this.#db.transaction((tx) => {
+      const mock = tx.select().from(activities).where(and(eq(activities.status, "active"), eq(activities.kind, "mock_interview"))).get();
+      if (mock) throw mockRunning();
       const running = tx.select().from(activities).where(and(eq(activities.status, "active"), eq(activities.kind, kind))).get();
       if (running) return null;
       const activity: Activity = { id: crypto.randomUUID(), kind, status: "active", targetId, startedAt: this.#now(), endedAt: null, summary: null };
