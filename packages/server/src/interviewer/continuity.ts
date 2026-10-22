@@ -18,6 +18,7 @@ import {
 import { DomainError, localDate, type Activity, type Domain } from "../domain/domain.ts";
 import type { Settings } from "../settings/settings.ts";
 import { assembleBriefing } from "./briefing.ts";
+import { appContext } from "../agent/inert-json.ts";
 
 /** Activities whose completion ends the Agent session after a review (ADR-0002). */
 export const boundaryActivities: readonly ActivityKind[] = ["onboarding", "research", "practice_set", "mock_interview"];
@@ -269,7 +270,7 @@ function reviewRequest(activity: Activity): string {
     summary: activity.summary,
     note: "The Activity just ended and the app started the review Activity. Give the review now, following the review skill. The Candidate did not write this message; do not answer it as theirs.",
   };
-  return `<app_context name="activity_ended">\n${JSON.stringify(data, null, 2)}\n</app_context>`;
+  return appContext("activity_ended", data);
 }
 
 /** One Russian line per proposed change, as the Candidate confirms them. */

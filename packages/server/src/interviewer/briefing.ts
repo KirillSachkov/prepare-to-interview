@@ -5,6 +5,7 @@ import type { Database } from "../db/database.ts";
 import { activities, agentSessions, chatMessages } from "../db/schema.ts";
 import { masteryPercent, weakMastery } from "../domain/arithmetic.ts";
 import type { Domain } from "../domain/domain.ts";
+import { appContext } from "../agent/inert-json.ts";
 
 /** Upper bound of the Briefing text the agent receives, in characters. */
 export const maxBriefingChars = 6000;
@@ -121,7 +122,7 @@ function fit(data: BriefingData): BriefingData {
 }
 
 function render(data: BriefingData): string {
-  return `<app_context name="briefing">\n${JSON.stringify(data)}\n</app_context>`;
+  return appContext("briefing", data, undefined);
 }
 
 function clip(text: string | null, max: number): string | null {

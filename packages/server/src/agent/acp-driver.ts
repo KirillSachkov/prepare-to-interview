@@ -5,6 +5,7 @@ import { sessionStateUri, type AgentId } from "@prepare-to-interview/shared";
 import type { AgentDriver, AgentEvent, AgentSession, SessionConfig, TurnInput, TurnResult } from "./driver.ts";
 import { AgentError, toAgentError } from "./errors.ts";
 import { matchMcpTool } from "./tool-names.ts";
+import { inertJson } from "./inert-json.ts";
 
 /** How to start an agent process. */
 export interface LaunchSpec {
@@ -305,7 +306,7 @@ class AcpSession implements AgentSession {
 export function promptBlocks(input: TurnInput, embeddedContext: boolean): acp.ContentBlock[] {
   const blocks: acp.ContentBlock[] = [];
   if (input.hiddenState !== undefined) {
-    const text = `<session_state>${JSON.stringify(input.hiddenState)}</session_state>`;
+    const text = `<session_state>${inertJson(input.hiddenState)}</session_state>`;
     blocks.push(
       embeddedContext
         ? { type: "resource", resource: { uri: sessionStateUri, mimeType: "application/json", text } }

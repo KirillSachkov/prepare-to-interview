@@ -7,6 +7,7 @@ import type { Domain } from "../domain/domain.ts";
 import { callerHeader } from "../mcp/tool.ts";
 import type { MockAnswer, MockInterviews } from "../domain/mock.ts";
 import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
+import { appContext } from "../agent/inert-json.ts";
 
 export const defaultContentDir = fileURLToPath(new URL("../../../../interviewer", import.meta.url));
 
@@ -303,10 +304,6 @@ function describeCard(card: CardContext): string {
       ? "The Candidate wants to discuss this Card."
       : "The Candidate wants to discuss this Card before answering: help without giving away the answer.",
   });
-}
-
-function appContext(name: string, data: unknown): string {
-  return `<app_context name="${name}">\n${JSON.stringify(data, null, 2)}\n</app_context>`;
 }
 
 function localIso(date: Date): string {
