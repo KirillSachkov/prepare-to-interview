@@ -17,13 +17,23 @@ export interface FlowNodeData<K extends CanvasNodeKind = CanvasNodeKind> extends
 export type FlowNode = Node<FlowNodeData, CanvasNodeKind>;
 
 export function toFlowNode(node: CanvasNode): FlowNode {
+  const size = node.collapsed ? undefined : nodeTypeRegistry[node.kind].size;
   return {
     id: node.id,
     type: node.kind,
     position: node.position,
     data: { content: node.data, collapsed: node.collapsed },
     dragHandle: nodeTypeRegistry[node.kind].dragHandle,
+    ...(size && { style: size }),
   };
+}
+
+/** Applies the collapsed state; an expanded node gets its type's size back, a collapsed one fits its content. */
+export function withCollapsed(node: FlowNode, collapsed: boolean): FlowNode {
+  if (node.data.collapsed === collapsed) return node;
+  const size = collapsed ? undefined : nodeTypeRegistry[node.type].size;
+  const { width: _width, height: _height, style: _style, ...rest } = node;
+  return { ...rest, ...(size && { style: size }), data: { ...node.data, collapsed } };
 }
 
 /** Lets node views store their collapsed state without knowing the layout store. */

@@ -10,10 +10,15 @@ import type {
   TurnResult,
 } from "./driver.ts";
 
-/** One step of a scripted turn: emit an event as is, or call a tool on a session MCP server for real. */
+/**
+ * One step of a scripted turn: emit an event as is, call a tool on a session MCP server for real,
+ * wait until the turn is cancelled, or fail the turn with an error.
+ */
 export type FakeStep =
   | { event: AgentEvent }
-  | { callTool: { server: string; tool: string; arguments: Record<string, unknown> } };
+  | { callTool: { server: string; tool: string; arguments: Record<string, unknown> } }
+  | { waitForCancel: true }
+  | { fail: Error };
 
 export type FakeTurn = FakeStep[];
 
@@ -25,31 +30,78 @@ export class FakeDriver implements AgentDriver {
   readonly agent = "fake";
   /** Every turn input received, in order, across sessions. */
   readonly prompts: TurnInput[] = [];
+  /** Session starts and loads, in order. */
+  readonly sessions: { action: "start" | "load"; id: string; config: SessionConfig }[] = [];
   readonly #turns: FakeTurn[];
-  #sessions = 0;
+  /** Errors to throw from the next `startSession` or `loadSession` calls. */
+  readonly sessionFailures: Error[] = [];
+  #sessionCount = 0;
   #toolCalls = 0;
+  disposed = false;
 
   constructor(turns: FakeTurn[]) {
     this.#turns = [...turns];
   }
 
+  /** Adds turns for later prompts, for example after a restart with a new driver. */
+  script(...turns: FakeTurn[]): void {
+    this.#turns.push(...turns);
+  }
+
   startSession(config: SessionConfig): Promise<AgentSession> {
-    const id = `fake-session-${++this.#sessions}`;
+    return this.#open("start", `fake-session-${++this.#sessionCount}`, config);
+  }
+
+  loadSession(id: string, config: SessionConfig): Promise<AgentSession> {
+    return this.#open("load", id, config);
+  }
+
+  dispose(): Promise<void> {
+    this.disposed = true;
+    return Promise.resolve();
+  }
+
+  #open(action: "start" | "load", id: string, config: SessionConfig): Promise<AgentSession> {
+    const failure = this.sessionFailures.shift();
+    if (failure) return Promise.reject(failure);
+    this.sessions.push({ action, id, config });
+    let cancel: (() => void) | undefined;
+    let cancelled = false;
     return Promise.resolve({
       id,
-      prompt: (input, onEvent) => this.#replay(config, input, onEvent),
-      cancel: () => Promise.resolve(),
+      prompt: (input, onEvent) =>
+        this.#replay(config, input, onEvent, () => {
+          if (cancelled) return Promise.resolve();
+          return new Promise<void>((resolve) => (cancel = resolve));
+        }).finally(() => {
+          cancelled = false;
+        }),
+      cancel: () => {
+        cancelled = true;
+        cancel?.();
+        return Promise.resolve();
+      },
       close: () => Promise.resolve(),
     });
   }
 
-  async #replay(config: SessionConfig, input: TurnInput, onEvent: (event: AgentEvent) => void): Promise<TurnResult> {
+  async #replay(
+    config: SessionConfig,
+    input: TurnInput,
+    onEvent: (event: AgentEvent) => void,
+    untilCancelled: () => Promise<void>,
+  ): Promise<TurnResult> {
     this.prompts.push(input);
     const turn = this.#turns.shift();
     if (!turn) throw new Error(`FakeDriver: no scripted turn left for prompt "${input.text}"`);
     for (const step of turn) {
       if ("event" in step) onEvent(step.event);
-      else await this.#callTool(config.mcpServers, step.callTool, onEvent);
+      else if ("callTool" in step) await this.#callTool(config.mcpServers, step.callTool, onEvent);
+      else if ("fail" in step) throw step.fail;
+      else {
+        await untilCancelled();
+        return { stopReason: "cancelled" };
+      }
     }
     return { stopReason: "end_turn" };
   }

@@ -12,8 +12,15 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1792686158141,
-      "tag": "0001_canvas_layout_collapsed",
+      "when": 1792686452375,
+      "tag": "0001_chat_and_agent_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792690918671,
+      "tag": "0002_canvas_layout_collapsed",
       "breakpoints": true
     }
   ]

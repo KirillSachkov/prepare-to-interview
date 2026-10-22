@@ -17,7 +17,9 @@ export interface SessionConfig {
   persona: string;
   allowedBuiltins: AllowedBuiltin[];
   mcpServers: McpServerConfig[];
+  /** Re-applied after every session start and load; the agent's default when absent. */
   model?: string;
+  /** Re-applied after every session start and load; the driver's safe default when absent. */
   mode?: string;
 }
 
@@ -38,16 +40,27 @@ export type AgentEvent =
       toolCallId: string;
       title: string;
       status: ToolCallStatus;
-      /** Server and tool resolved from the agent-specific title (`mcp__x__y`, `mcp.x.y`, `x_y`). */
+      /** Server and tool resolved from the agent-specific name (`mcp__x__y`, `mcp.x.y`, `x_y`). */
       server?: string;
       tool?: string;
       rawInput?: unknown;
     }
-  | { type: "tool_call_update"; toolCallId: string; status: ToolCallStatus; rawOutput?: unknown }
+  | {
+      type: "tool_call_update";
+      toolCallId: string;
+      /** Absent when the update does not change the status. */
+      status?: ToolCallStatus;
+      title?: string;
+      server?: string;
+      tool?: string;
+      /** Some agents send the arguments only here, not in the first `tool_call`. */
+      rawInput?: unknown;
+      rawOutput?: unknown;
+    }
   | { type: "usage"; used: number; size: number }
   | { type: "session_info"; title?: string };
 
-export type StopReason = "end_turn" | "cancelled" | "max_tokens" | "refusal";
+export type StopReason = "end_turn" | "cancelled" | "max_tokens" | "max_turn_requests" | "refusal";
 
 export interface TurnResult {
   stopReason: StopReason;
@@ -58,6 +71,7 @@ export interface AgentSession {
   readonly id: string;
   /** Runs one turn, streaming events to `onEvent` until the turn stops. */
   prompt(input: TurnInput, onEvent: (event: AgentEvent) => void): Promise<TurnResult>;
+  /** Asks the agent to stop the running turn; `prompt` then resolves with `cancelled`. */
   cancel(): Promise<void>;
   close(): Promise<void>;
 }
@@ -66,4 +80,8 @@ export interface AgentDriver {
   /** Agent identifier, such as `claude`, `codex`, `opencode`, or `fake`. */
   readonly agent: string;
   startSession(config: SessionConfig): Promise<AgentSession>;
+  /** Resumes an earlier session by id, for example after an app restart; replayed history is dropped. */
+  loadSession(id: string, config: SessionConfig): Promise<AgentSession>;
+  /** Stops every agent process the driver started. */
+  dispose(): Promise<void>;
 }

@@ -12,7 +12,8 @@
     "test": "vitest run",
     "lint": "eslint --max-warnings 0 .",
     "typecheck": "pnpm -r --parallel typecheck",
-    "e2e": "pnpm --filter @prepare-to-interview/client build && pnpm --filter @prepare-to-interview/e2e test"
+    "e2e": "pnpm --filter @prepare-to-interview/client build && pnpm --filter @prepare-to-interview/e2e test",
+    "smoke": "node packages/server/scripts/smoke.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

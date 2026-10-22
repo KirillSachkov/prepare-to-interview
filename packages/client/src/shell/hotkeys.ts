@@ -32,8 +32,11 @@ export function matchesHotkey(event: KeyboardEvent, hotkey: Hotkey): boolean {
   return byCode || (hotkey.key?.includes(event.key) ?? false);
 }
 
-/** Typing into a field never triggers shortcuts. */
+const nonTextInputs = new Set(["checkbox", "radio", "button", "submit", "reset", "range", "color", "file"]);
+
+/** Typing into a field never triggers shortcuts; a focused checkbox or radio button is not typing. */
 export function isTyping(element: Element | null): boolean {
+  if (element instanceof HTMLInputElement) return !nonTextInputs.has(element.type);
   if (!(element instanceof HTMLElement)) return false;
-  return element.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName);
+  return element.isContentEditable || ["TEXTAREA", "SELECT"].includes(element.tagName);
 }

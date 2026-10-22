@@ -4,7 +4,7 @@ import { applyNodeChanges, type NodeChange } from "@xyflow/react";
 import { useCallback, useEffect, useState } from "react";
 import type { CanvasNode, LayoutUpdate, NodeLayoutEntry } from "@prepare-to-interview/shared";
 import { fetchCanvas, saveLayout, subscribeToEvents } from "../api.ts";
-import { toFlowNode, type FlowNode } from "../nodes/flow.tsx";
+import { toFlowNode, withCollapsed, type FlowNode } from "../nodes/flow.tsx";
 
 /** Adds nodes not shown yet and refreshes the layout of known ones; the server is the source of truth. */
 function mergeNodes(current: FlowNode[], incoming: CanvasNode[]): FlowNode[] {
@@ -21,9 +21,8 @@ function mergeNodes(current: FlowNode[], incoming: CanvasNode[]): FlowNode[] {
 /** A node being dragged keeps the position under the cursor. */
 function withLayout(node: FlowNode, layout: NodeLayoutEntry): FlowNode {
   const position = node.dragging ? node.position : layout.position;
-  const same =
-    position.x === node.position.x && position.y === node.position.y && layout.collapsed === node.data.collapsed;
-  return same ? node : { ...node, position, data: { ...node.data, collapsed: layout.collapsed } };
+  const moved = position.x !== node.position.x || position.y !== node.position.y;
+  return withCollapsed(moved ? { ...node, position } : node, layout.collapsed);
 }
 
 function applyLayouts(current: FlowNode[], layouts: NodeLayoutEntry[]): FlowNode[] {
@@ -84,7 +83,7 @@ export function useCanvasNodes() {
   const setCollapsed = useCallback(
     (nodeId: string, collapsed: boolean) => {
       setNodes((current) =>
-        current.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, collapsed } } : n)),
+        current.map((n) => (n.id === nodeId ? withCollapsed(n, collapsed) : n)),
       );
       persist([{ nodeId, collapsed }]);
     },

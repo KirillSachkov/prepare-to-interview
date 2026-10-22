@@ -54,7 +54,7 @@ describe("Canvas layout store", () => {
   it("always shows the Chat node, expanded, left of the first grid cell", async () => {
     const server = await start();
     expect(await canvas(server)).toEqual({
-      nodes: [{ id: chatNodeId, kind: "chat", position: { x: -420, y: 0 }, collapsed: false, data: {} }],
+      nodes: [{ id: chatNodeId, kind: "chat", position: { x: -460, y: 0 }, collapsed: false, data: {} }],
     });
   });
 
@@ -114,7 +114,7 @@ describe("Canvas layout store", () => {
     });
     expect(res.status).toBe(404);
     expect(await res.text()).toContain("no-such-node");
-    expect(nodeLayout(await canvas(server), chatNodeId)).toEqual({ position: { x: -420, y: 0 }, collapsed: false });
+    expect(nodeLayout(await canvas(server), chatNodeId)).toEqual({ position: { x: -460, y: 0 }, collapsed: false });
   });
 
   it.each([

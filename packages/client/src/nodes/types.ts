@@ -27,6 +27,8 @@ export interface NodeTypeDefinition<K extends CanvasNodeKind> {
   View: ComponentType<NodeViewProps<K>>;
   /** Compact rendering when the Canvas is zoomed out far enough that details are unreadable. */
   Summary: ComponentType<NodeViewProps<K>>;
+  /** Initial size of the expanded node, for views that fill their node (resizable ones); collapsed nodes size to content. */
+  size?: { width: number; height: number };
   /** CSS selector of the part that drags the node; the whole node drags when absent. */
   dragHandle?: string;
   /** Right-click entries for this node; the empty-Canvas menu is used when absent. */

@@ -1,6 +1,7 @@
-// Sections of the Settings dialog (top-left menu → «Настройки»). A feature adds its own panel here,
-// such as the agent choice; the dialog renders them in order.
+// Sections of the Settings dialog (top-left menu → «Настройки»). A feature adds its own panel here;
+// the dialog renders them in order.
 import type { ComponentType } from "react";
+import { AgentSettingsPanel } from "./AgentSettingsPanel.tsx";
 
 export interface SettingsSection {
   id: string;
@@ -8,4 +9,4 @@ export interface SettingsSection {
   Panel: ComponentType;
 }
 
-export const settingsSections: SettingsSection[] = [];
+export const settingsSections: SettingsSection[] = [{ id: "agent", title: "Агент", Panel: AgentSettingsPanel }];

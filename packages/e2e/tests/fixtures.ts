@@ -36,13 +36,19 @@ export const placeNote = (baseURL: string, title: string) =>
 export async function openCanvas(page: Page): Promise<void> {
   await page.goto(`/?${tokenQueryParam}=${token()}`);
   await expect(page.getByRole("toolbar", { name: "Панель инструментов" })).toBeVisible();
-  await expect(page.locator('.react-flow__node[data-id="chat"]')).toBeVisible();
+  const chat = page.locator('.react-flow__node[data-id="chat"]');
+  await expect(chat).toBeVisible();
+  // With no agent chosen the Chat settles on its agent settings; until then its composer may hold focus.
+  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText("Coding agent");
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
 }
 
 /** Puts the Chat back where a fresh Canvas has it, so tests do not depend on each other's drags. */
 export async function resetChatLayout(baseURL: string): Promise<void> {
   const body: LayoutUpdateRequest = {
-    updates: [{ nodeId: chatNodeId, position: { x: -420, y: 0 }, collapsed: false }],
+    updates: [{ nodeId: chatNodeId, position: { x: -460, y: 0 }, collapsed: false }],
   };
   const res = await fetch(new URL(apiPaths.canvasLayout, baseURL), {
     method: "PUT",

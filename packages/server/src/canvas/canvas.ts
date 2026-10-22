@@ -24,7 +24,7 @@ const cellWidth = 280;
 const cellHeight = 180;
 
 /** Until the Candidate moves it, the Chat sits left of the first grid cell. */
-const defaultChatLayout: NodeLayout = { position: { x: -420, y: 0 }, collapsed: false };
+const defaultChatLayout: NodeLayout = { position: { x: -460, y: 0 }, collapsed: false };
 
 /** A layout update named a node the Canvas does not have. */
 export class UnknownNodeError extends Error {
