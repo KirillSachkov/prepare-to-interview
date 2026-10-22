@@ -27,15 +27,21 @@ function adapterEntry(pkg: string, bin: string): string {
   return path.join(path.dirname(manifest), entry);
 }
 
+/** Variables of a coding-agent session the app itself may have been started from. */
+const parentSessionVars = /^(CLAUDECODE|CLAUDE_CODE_ENTRYPOINT|CLAUDE_CODE_SSE_PORT|OPENCODE_CONFIG|OPENCODE_CONFIG_CONTENT)$/;
+
 /**
- * The agent runs on the Candidate's own login, never on API keys from the app's environment, and
- * never inherits variables of a coding-agent session the app itself was started from.
+ * The agent's environment without variables of a parent agent session and without the given
+ * API key variables, so Claude and Codex run on the Candidate's own login rather than a key.
  */
-export function agentEnv(env: NodeJS.ProcessEnv, extra: Record<string, string> = {}): Record<string, string> {
+export function agentEnv(
+  env: NodeJS.ProcessEnv,
+  dropKeys: RegExp | undefined,
+  extra: Record<string, string> = {},
+): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
-    if (value === undefined) continue;
-    if (/^(ANTHROPIC_|OPENAI_|CODEX_API_KEY$|CLAUDECODE$|CLAUDE_CODE_|OPENCODE_CONFIG)/.test(key)) continue;
+    if (value === undefined || parentSessionVars.test(key) || dropKeys?.test(key)) continue;
     result[key] = value;
   }
   return { ...result, ...extra };
@@ -56,7 +62,7 @@ export function claudeProfile(ctx: ProfileContext): AcpProfile {
     launch: () => ({
       command: process.execPath,
       args: [adapterEntry("@agentclientprotocol/claude-agent-acp", "claude-agent-acp")],
-      env: agentEnv(ctx.env, { ENABLE_CLAUDEAI_MCP_SERVERS: "false" }),
+      env: agentEnv(ctx.env, /^ANTHROPIC_/, { ENABLE_CLAUDEAI_MCP_SERVERS: "false" }),
       cwd: ctx.workDir,
     }),
     sessionParams: (config) => ({
@@ -103,12 +109,17 @@ const codexDisabledFeatures = [
 /**
  * Codex: the base prompt is replaced only per process (`model_instructions_file` in
  * `CODEX_CONFIG`), so each persona gets its own process; the persona is also appended per
- * session. The sandbox is read-only and the shell is off. Codex still inherits `~/.codex`
+ * session. The shell is off and the session mode is `read-only`: the adapter applies its mode's
+ * sandbox and approval policy to every turn, overriding `sandbox_mode` from the config, and its
+ * default mode `agent` can write files and auto-approves. Codex still inherits `~/.codex`
  * (global AGENTS.md, user MCP servers): see ADR-0007.
  */
+const codexMode = "read-only";
+
 export function codexProfile(ctx: ProfileContext): AcpProfile {
   return {
     agent: "codex",
+    defaultMode: codexMode,
     launch: (config) => {
       const instructions = writeOnce(path.join(ctx.stateDir, "codex"), "instructions", config.persona);
       const codexConfig = {
@@ -123,7 +134,10 @@ export function codexProfile(ctx: ProfileContext): AcpProfile {
       return {
         command: process.execPath,
         args: [adapterEntry("@agentclientprotocol/codex-acp", "codex-acp")],
-        env: agentEnv(ctx.env, { CODEX_CONFIG: JSON.stringify(codexConfig) }),
+        env: agentEnv(ctx.env, /^(OPENAI_|CODEX_API_KEY$)/, {
+          CODEX_CONFIG: JSON.stringify(codexConfig),
+          INITIAL_AGENT_MODE: codexMode,
+        }),
         cwd: ctx.workDir,
       };
     },
@@ -147,7 +161,8 @@ export function opencodeProfile(ctx: ProfileContext): AcpProfile {
     launch: (config): LaunchSpec => ({
       command: ctx.opencodeCommand ?? "opencode",
       args: ["acp", "--cwd", ctx.workDir],
-      env: agentEnv(ctx.env, { OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig(config)) }),
+      // OpenCode runs on the provider the Candidate configured, which may read provider keys from the environment.
+      env: agentEnv(ctx.env, undefined, { OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig(config)) }),
       cwd: ctx.workDir,
     }),
     sessionParams: () => ({}),

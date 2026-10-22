@@ -1,4 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import type { ChatToolCall } from "@prepare-to-interview/shared";
 
 /** Placeholder domain record for the walking skeleton; real domain tables replace it. */
 export const demoNotes = sqliteTable("demo_notes", {
@@ -38,12 +39,10 @@ export const agentSessions = sqliteTable("agent_sessions", {
 /** The single continuous Chat the Candidate sees, spanning many Agent sessions. */
 export const chatMessages = sqliteTable("chat_messages", {
   id: text("id").primaryKey(),
-  /** candidate | interviewer | notice */
-  role: text("role").notNull(),
+  role: text("role", { enum: ["candidate", "interviewer", "notice"] }).notNull(),
   text: text("text").notNull(),
-  /** streaming | complete | cancelled | failed */
-  status: text("status").notNull(),
-  toolCalls: text("tool_calls", { mode: "json" }).notNull(),
+  status: text("status", { enum: ["streaming", "complete", "cancelled", "failed"] }).notNull(),
+  toolCalls: text("tool_calls", { mode: "json" }).$type<ChatToolCall[]>().notNull(),
   agentSessionId: text("agent_session_id").references(() => agentSessions.id),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /** Insertion order; createdAt can tie within a millisecond. */

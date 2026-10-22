@@ -54,7 +54,6 @@ describe("ACP driver: per-agent translation", () => {
     expect(launch?.args[0]).toMatch(/claude-agent-acp.*dist[/\\]index\.js$/);
     expect(launch?.env.ENABLE_CLAUDEAI_MCP_SERVERS).toBe("false");
     expect(launch?.env).not.toHaveProperty("ANTHROPIC_API_KEY");
-    expect(launch?.env).not.toHaveProperty("OPENAI_API_KEY");
     expect(launch?.env).not.toHaveProperty("CLAUDECODE");
     expect(launch?.env.HOME).toBe("/home/candidate");
 
@@ -79,7 +78,9 @@ describe("ACP driver: per-agent translation", () => {
   });
 
   it("Codex: replaces the base prompt per process, appends per session, read-only with no shell", async () => {
-    const { driver, launches, requests } = setup("codex");
+    const { driver, launches, requests } = setup("codex", {
+      configOptions: [selectOption("mode", ["agent", "read-only"]), selectOption("model", ["gpt"])],
+    });
     await driver.startSession(config);
     await driver.startSession(config);
     await driver.startSession({ ...config, persona: "You are Grader." });
@@ -98,6 +99,13 @@ describe("ACP driver: per-agent translation", () => {
     expect(fs.readFileSync(codexConfig.model_instructions_file, "utf8")).toBe(persona + "\n");
     expect(launches[1]!.env.CODEX_CONFIG).toContain("You are Grader.");
     expect(launches[0]!.env).not.toHaveProperty("OPENAI_API_KEY");
+    // The adapter's default mode writes files and auto-approves; read-only is set at start and per session.
+    expect(launches[0]!.env.INITIAL_AGENT_MODE).toBe("read-only");
+    expect(requests("session/set_config_option").map((p) => [p.configId, p.value])).toEqual([
+      ["mode", "read-only"],
+      ["mode", "read-only"],
+      ["mode", "read-only"],
+    ]);
     expect(requests("session/new")[0]).toMatchObject({
       _meta: { jetbrains: { air: { customInstructions: persona } } },
     });
@@ -124,6 +132,8 @@ describe("ACP driver: per-agent translation", () => {
       },
     });
     expect(JSON.stringify(content)).not.toContain("websearch");
+    // OpenCode runs on the Candidate's configured provider, whose keys may live in the environment.
+    expect(launches[0]!.env.OPENAI_API_KEY).toBe("sk-y");
     expect(requests("session/set_config_option").map((p) => [p.configId, p.value])).toEqual([
       ["mode", "interviewer"],
       ["model", "deepseek/flash"],
@@ -237,6 +247,25 @@ describe("ACP driver: turns and event normalization", () => {
     await session.prompt({ text: "go" }, () => undefined);
 
     expect(answers).toEqual(["allow", "allow", "reject", "reject", "reject"]);
+  });
+
+  it("approves a permission request that names only the id of an announced app tool call (Codex)", async () => {
+    const answers: string[] = [];
+    const { driver } = setup("codex", {
+      onPrompt: async (ctx) => {
+        await ctx.update({ sessionUpdate: "tool_call", toolCallId: "exec-1", title: "mcp.interview.record_attempt", kind: "execute" });
+        await ctx.update({ sessionUpdate: "tool_call", toolCallId: "exec-2", title: "Run echo smoke", kind: "execute" });
+        for (const toolCallId of ["exec-1", "exec-2"]) {
+          const response = await ctx.requestPermission({ toolCallId, kind: "execute", status: "pending" });
+          answers.push(response.outcome.outcome === "selected" ? response.outcome.optionId : "cancelled");
+        }
+        return "end_turn";
+      },
+    });
+    const session = await driver.startSession(config);
+    await session.prompt({ text: "go" }, () => undefined);
+
+    expect(answers).toEqual(["allow", "reject"]);
   });
 
   it("cancels a running turn", async () => {

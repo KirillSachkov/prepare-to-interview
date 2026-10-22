@@ -6,7 +6,6 @@ import {
   type ChatMessage,
   type ChatRole,
   type ChatSnapshot,
-  type ChatToolCall,
 } from "@prepare-to-interview/shared";
 import type { AgentDriver, AgentEvent, AgentSession } from "../agent/driver.ts";
 import { describeAgentError, toAgentError } from "../agent/errors.ts";
@@ -19,8 +18,8 @@ import type { Settings } from "../settings/settings.ts";
 export type DriverProvider = (agent: AgentId) => AgentDriver;
 
 export class ChatBusyError extends Error {
-  constructor() {
-    super("The Interviewer is still replying. Wait for the reply or stop it first.");
+  constructor(message = "The Interviewer is still replying. Wait for the reply or stop it first.") {
+    super(message);
     this.name = "ChatBusyError";
   }
 }
@@ -45,8 +44,15 @@ interface Turn {
   stopRequested: boolean;
   prompting?: AgentSession;
   reply?: ChatMessage;
+  /** When the streaming reply text was last written to the database. */
+  savedAt: number;
   done: Promise<void>;
 }
+
+/** How often a streaming reply is saved, so a crash keeps most of the text. */
+const saveIntervalMs = 1000;
+/** How long closing waits for a stopped turn before giving up on the agent. */
+const closeTimeoutMs = 5000;
 
 const noAgentNotice = "Choose your coding agent in settings to start the Chat.";
 const interruptedNotice = "The app stopped while the Interviewer was replying. Send your message again.";
@@ -59,6 +65,7 @@ export class Chat {
   readonly #deps: ChatDeps;
   #live: LiveSession | undefined;
   #turn: Turn | undefined;
+  #closing = false;
 
   constructor(deps: ChatDeps) {
     this.#deps = deps;
@@ -74,9 +81,10 @@ export class Chat {
 
   /** Stores the Candidate's message and starts the Interviewer's reply in the background. */
   send(text: string): ChatMessage {
+    if (this.#closing) throw new ChatBusyError("The app is shutting down.");
     if (this.#turn) throw new ChatBusyError();
     const message = this.#insert("candidate", text, "complete");
-    const turn: Turn = { stopRequested: false, done: Promise.resolve() };
+    const turn: Turn = { stopRequested: false, savedAt: Date.now(), done: Promise.resolve() };
     this.#turn = turn;
     this.#deps.events.publish({ type: "chat.busy", busy: true });
     turn.done = this.#run(turn, text).finally(() => {
@@ -99,9 +107,13 @@ export class Chat {
     await this.#turn?.done;
   }
 
+  /** Stops the running reply and the live session; an agent that ignores the stop is left behind. */
   async close(): Promise<void> {
+    this.#closing = true;
     await this.stop();
-    await this.idle();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([this.idle(), new Promise((resolve) => (timer = setTimeout(resolve, closeTimeoutMs)))]);
+    clearTimeout(timer);
     await this.#dropLive();
   }
 
@@ -182,6 +194,10 @@ export class Chat {
         const reply = this.#reply(turn, live);
         reply.text += event.text;
         this.#deps.events.publish({ type: "chat.delta", messageId: reply.id, text: event.text });
+        if (Date.now() - turn.savedAt >= saveIntervalMs) {
+          turn.savedAt = Date.now();
+          this.#deps.db.update(chatMessages).set({ text: reply.text }).where(eq(chatMessages.id, reply.id)).run();
+        }
         return;
       }
       case "tool_call": {
@@ -264,11 +280,11 @@ export class Chat {
 function toMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
   return visible({
     id: row.id,
-    role: row.role as ChatRole,
+    role: row.role,
     text: row.text,
-    status: row.status as ChatMessage["status"],
+    status: row.status,
     createdAt: row.createdAt.getTime(),
-    toolCalls: row.toolCalls as ChatToolCall[],
+    toolCalls: row.toolCalls,
   });
 }
 

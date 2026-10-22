@@ -247,6 +247,8 @@ class AcpSession implements AgentSession {
   readonly #servers: string[];
   #onEvent: ((event: AgentEvent) => void) | undefined;
   #dead: AgentError | undefined;
+  /** Tool calls already announced as app MCP calls: some agents (Codex) ask permission by id only. */
+  readonly #appToolCalls = new Set<string>();
 
   constructor(connection: AgentConnection, id: string, config: SessionConfig) {
     this.id = id;
@@ -281,11 +283,14 @@ class AcpSession implements AgentSession {
   handleUpdate(update: acp.SessionUpdate): void {
     if (!this.#onEvent) return;
     const event = normalizeUpdate(update, this.#servers);
+    if ((event?.type === "tool_call" || event?.type === "tool_call_update") && event.server) {
+      this.#appToolCalls.add(event.toolCallId);
+    }
     if (event) this.#onEvent(event);
   }
 
   permits(toolCall: acp.ToolCallUpdate): boolean {
-    return permitsToolCall(toolCall, this.#config);
+    return this.#appToolCalls.has(toolCall.toolCallId) || permitsToolCall(toolCall, this.#config);
   }
 
   markDead(error: AgentError): void {

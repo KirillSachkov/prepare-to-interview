@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import {
@@ -10,6 +12,7 @@ import {
 import type { AgentDriver } from "../src/agent/driver.ts";
 import { AgentError } from "../src/agent/errors.ts";
 import { FakeDriver, type FakeTurn } from "../src/agent/fake-driver.ts";
+import { defaultContentDir } from "../src/interviewer/interviewer.ts";
 import type { RunningServer } from "../src/server.ts";
 import { authHeaders, makeTempDirs, startTestServer } from "./helpers.ts";
 
@@ -134,7 +137,7 @@ describe("Chat with the Interviewer", () => {
     }
     // One Agent session serves both turns; it carries the persona, web tools, and the app's MCP server.
     expect(driver.sessions).toHaveLength(1);
-    expect(driver.sessions[0]!.config.persona).toContain('You are "Interviewer"');
+    expect(driver.sessions[0]!.config.persona).toBe(fs.readFileSync(path.join(defaultContentDir, "persona.md"), "utf8"));
     expect(driver.sessions[0]!.config).toMatchObject({
       allowedBuiltins: ["web_fetch", "web_search"],
       mcpServers: [server.mcpServer],
