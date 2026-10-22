@@ -156,3 +156,15 @@ test("the Interviewer points at a Card and a Topic: the Canvas pans to it and hi
   await expect(map.getByRole("heading", { name: "Evals" })).toBeVisible();
   await expect(map.locator("[data-topic-id]")).toHaveAttribute("data-highlighted", "");
 });
+
+test("Interviewer replies render basic Markdown without raw HTML or unsafe links", async ({ page, baseURL }) => {
+  await apiCall(baseURL!, apiPaths.chatMessages, { method: "POST", body: { text: "e2e-markdown" } });
+  const bubble = chat(page).locator("p", { hasText: "Итог:" }).locator("..");
+  await expect(bubble.locator("strong")).toHaveText("Итог:");
+  await expect(bubble.locator("li code")).toHaveText("B-tree");
+  await expect(bubble.getByRole("link", { name: "Документация" })).toHaveAttribute("href", "https://www.postgresql.org/docs/");
+  await expect(bubble).toContainText("<b>не HTML</b>");
+  await expect(bubble.locator("b")).toHaveCount(0);
+  await expect(bubble.getByRole("link", { name: "ссылка" })).toHaveCount(0);
+  await expect(bubble).not.toContainText("**");
+});

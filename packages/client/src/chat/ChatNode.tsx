@@ -10,6 +10,7 @@ import {
 import { NodeResizer } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
 import { agentLabels, type AgentId, type ChatMessage } from "@prepare-to-interview/shared";
+import { Markdown } from "./markdown.tsx";
 import { ProposalCard } from "./ProposalCard.tsx";
 import { AgentSettingsPanel } from "../settings/AgentSettingsPanel.tsx";
 import { focusCard } from "../practice/focus.ts";
@@ -153,7 +154,7 @@ function ChatBubble({ message }: { message: ChatMessage | undefined }) {
           mine ? "bg-stone-800 text-white" : "bg-stone-100 text-stone-900"
         }`}
       >
-        {message.text || (message.status === "streaming" ? "…" : "")}
+        {mine || !message.text ? message.text || (message.status === "streaming" ? "…" : "") : <Markdown text={message.text} />}
         {message.proposal && <ProposalCard proposal={message.proposal} />}
         {message.toolCalls.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-xs text-stone-500">

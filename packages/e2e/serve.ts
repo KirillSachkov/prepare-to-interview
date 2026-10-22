@@ -16,12 +16,17 @@ const { dataDir, port } = e2eEnv();
 const grader: FakeResponder = (config, input) => {
   // The review the app starts after a graded set stays silent, except for sets titled for it.
   if (input.text.includes('<app_context name="activity_ended">')) return input.text.includes(reviewedTitle) ? review : [];
+  if (input.text === markdownRequest) return [{ event: { type: "message_chunk", text: markdownReply } }];
   if (!config.persona.startsWith("# Grader")) return undefined;
   const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(input.text)?.[1] ?? "";
   const quote = answer.split(/(?<=[.!?])\s/)[0] ?? answer;
   const verdict = { score: 2, quote, right: "Ключевая идея названа.", gap: "Не хватает проверки на метриках." };
   return [{ event: { type: "message_chunk", text: JSON.stringify(verdict) } }];
 };
+/** The Chat answers this message with Markdown, so tests see it rendered. */
+export const markdownRequest = "e2e-markdown";
+const markdownReply = "**Итог:** два пункта.\n\n- `B-tree` по умолчанию\n- [Документация](https://www.postgresql.org/docs/)\n\n<b>не HTML</b> и [ссылка](javascript:alert(1))";
+
 /** A graded Practice set with this in its title gets a review that proposes Candidate profile and Decision log updates. */
 const reviewedTitle = "e2e-review";
 const review: FakeTurn = [
