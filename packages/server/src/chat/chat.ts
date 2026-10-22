@@ -191,6 +191,8 @@ export class Chat {
   }
 
   #onEvent(turn: Turn, live: LiveSession, event: AgentEvent): void {
+    // After shutdown the database may be closed; a late stream is dropped.
+    if (this.#closing) return;
     switch (event.type) {
       case "message_chunk": {
         const reply = this.#reply(turn, live);
