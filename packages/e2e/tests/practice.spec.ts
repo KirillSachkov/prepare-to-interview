@@ -43,8 +43,11 @@ test.beforeEach(async ({ page, baseURL }) => {
 test("answer → submit → grades → collapse into a result Card", async ({ page, baseURL }) => {
   await placePracticeSet(baseURL!, { title: "Подборка на сегодня", cards: [openCard, singleCard, multiCard] });
   const set = practiceSet(page, "Подборка на сегодня");
-  await page.keyboard.press("Shift+Digit1");
-  await expect(set).toContainText("отвечено 0 из 3");
+  // The new node may reach the live Canvas after the first fit; off-screen nodes are not rendered.
+  await expect(async () => {
+    await page.keyboard.press("Shift+Digit1");
+    await expect(set).toContainText("отвечено 0 из 3", { timeout: 1000 });
+  }).toPass();
   await expect(set.getByRole("button", { name: /Отправить/ })).toBeDisabled();
   const open = set.locator("[data-card-id]").filter({ hasText: openCard.prompt });
   const single = set.locator("[data-card-id]").filter({ hasText: singleCard.prompt });
@@ -105,7 +108,10 @@ test("answer → submit → grades → collapse into a result Card", async ({ pa
 test("skip, training mode, and «Обсудить» bring a Card into the Chat", async ({ page, baseURL }) => {
   await placePracticeSet(baseURL!, { title: "Тренировка", cards: [singleCard, multiCard] });
   const set = practiceSet(page, "Тренировка");
-  await page.keyboard.press("Shift+Digit1");
+  await expect(async () => {
+    await page.keyboard.press("Shift+Digit1");
+    await expect(set).toContainText("Тренировка", { timeout: 1000 });
+  }).toPass();
   const single = set.locator("[data-card-id]").filter({ hasText: singleCard.prompt });
   const multi = set.locator("[data-card-id]").filter({ hasText: multiCard.prompt });
 

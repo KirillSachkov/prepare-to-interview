@@ -8,7 +8,7 @@ import {
   chatNodeId,
   practiceSetPaths,
   tokenQueryParam,
-  type CanvasSnapshot,
+  type CanvasSnapshot, type ChatSnapshot,
   type LayoutUpdateRequest,
 } from "@prepare-to-interview/shared";
 import { e2eEnv } from "../env.ts";
@@ -124,6 +124,20 @@ export async function submitUnfinishedSets(baseURL: string): Promise<void> {
     const res = await fetch(new URL(practiceSetPaths.submit(node.id), baseURL), { method: "POST", headers });
     expect(res.status).toBe(202);
   }
+  await settled(baseURL);
+}
+
+/** Waits until no Practice set is grading and the Chat is idle, such as after the review the app starts for a graded set. */
+export async function settled(baseURL: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${token()}` };
+  const get = async <T>(path: string) => (await (await fetch(new URL(path, baseURL), { headers })).json()) as T;
+  await expect
+    .poll(async () => {
+      const canvas = await get<CanvasSnapshot>(apiPaths.canvas);
+      const grading = canvas.nodes.some((n) => n.kind === "practice_set" && n.data.status === "grading");
+      return !grading && !(await get<ChatSnapshot>(apiPaths.chat)).busy;
+    })
+    .toBe(true);
 }
 
 export { expect, test } from "@playwright/test";

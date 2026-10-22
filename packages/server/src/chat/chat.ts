@@ -264,7 +264,6 @@ export class Chat {
         // Login, limit, or a missing agent would fail a new session too.
         if (agentError.kind !== "failed") throw agentError;
         this.#endSession(stored.id, "load_failed");
-        this.#deps.sessions?.ended(stored.id, "load_failed");
       }
     }
     const session = await driver.startSession(config);
@@ -291,7 +290,6 @@ export class Chat {
     const reason = policy.rotationReason(row);
     if (!reason) return false;
     this.#endSession(rowId, reason);
-    policy.ended(rowId, reason);
     return true;
   }
 
@@ -299,12 +297,14 @@ export class Chat {
     return this.#deps.now?.() ?? new Date();
   }
 
+  /** Ends the session row and lets the policy keep its summary. */
   #endSession(rowId: string, reason: string): void {
     this.#deps.db
       .update(agentSessions)
       .set({ endedAt: this.#now(), endedReason: reason })
       .where(eq(agentSessions.id, rowId))
       .run();
+    this.#deps.sessions?.ended(rowId, reason);
   }
 
   #onEvent(turn: Turn, live: LiveSession, event: AgentEvent): void {

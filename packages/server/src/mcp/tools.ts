@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { maxPracticeCards } from "@prepare-to-interview/shared";
 import { practiceSetKinds, questionTypes, revealModes, topicPriorities } from "../db/schema.ts";
-import { maxHintRungs } from "../domain/arithmetic.ts";
+import { masteryPercent, maxHintRungs } from "../domain/arithmetic.ts";
 import {
   DomainError,
   languages,
@@ -140,8 +140,6 @@ export function toPracticeQuestion(card: z.output<typeof practiceCardInput>): Pr
   if ("question_id" in card) return { questionId: card.question_id, ...fill };
   return { topic: card.topic, prompt: card.prompt, type: card.type, ...(card.options && { options: card.options }), ...fill };
 }
-
-const percent = (mastery: number | null) => (mastery === null ? null : Math.round(mastery * 100));
 
 const queuedOutput = z.strictObject({
   question_id: z.string(),
@@ -429,13 +427,13 @@ export function createTools({ domain, practice, interviewer, continuity, mock }:
           prompt: q.prompt,
           box: q.box,
           due_on: q.dueOn,
-          mastery: percent(q.mastery),
+          mastery: masteryPercent(q.mastery),
         });
         return {
           target_id: targetId,
           readiness: progress.readiness,
           due: progress.due,
-          topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: percent(t.mastery), questions: t.questions, due: t.due })),
+          topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: masteryPercent(t.mastery), questions: t.questions, due: t.due })),
           due_questions: queue.due.map(queued),
           new_questions: queue.neverPractised.map(queued),
         };

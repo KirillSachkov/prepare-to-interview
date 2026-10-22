@@ -57,8 +57,11 @@ test("mock turns with a follow-up, a timer, hidden grades, then the Grader's res
   await dialog.getByRole("button", { name: "Начать" }).click();
   await expect(chat(page)).toContainText("Хочу мок-интервью на 15 минут, фокус — слабые места.");
   const mock = mockNode(page);
-  await fitAll(page);
-  await expect(mock).toContainText("вопрос 0 · оценки в конце");
+  // The new node may reach the live Canvas after the first fit; off-screen nodes are not rendered.
+  await expect(async () => {
+    await fitAll(page);
+    await expect(mock).toContainText("вопрос 0 · оценки в конце", { timeout: 1000 });
+  }).toPass();
   await expect(mock.getByRole("timer")).toHaveAccessibleName(/^Осталось 1[45]:\d\d$/);
 
   // Turn 1: the Interviewer places the first Card; the Candidate answers with Cmd/Ctrl+Enter.
