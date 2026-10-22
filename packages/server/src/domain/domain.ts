@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, max, ne, sql } from "drizzle-orm";
 import type { TargetsResponse, TargetSummary } from "@prepare-to-interview/shared";
 import type { Database } from "../db/database.ts";
 import {
@@ -439,6 +439,8 @@ export class Domain {
           { candidateMessage: `такой вопрос уже есть в банке, тема «${topic}».` },
         );
       }
+      // The Candidate's own Question counts for the target they prepare for; Research output joins it on approval.
+      if (status === "active") this.#linkToActiveTarget(tx, topicId);
       return { id: this.#insertQuestion(tx, topicId, { ...input, type }, status), topicId };
     });
     return { id: result.id, topic: present(this.#topicNames([result.topicId]).get(result.topicId)), status };
@@ -448,7 +450,9 @@ export class Domain {
    * Resolves the Questions of a Practice set in one transaction: bank Questions by id (filling
    * missing fields), and composed ones by Topic and prompt, reusing a bank Question with the same
    * prompt. Composed Questions enter the bank as active: the Candidate asked for the practice.
-   * Proposed and rejected Questions are refused, never reactivated.
+   * Proposed and rejected Questions are refused, never reactivated. Each Question's Topic joins
+   * the active Preparation target when the target does not cover it yet, so its Attempts count
+   * for Mastery, Due, and readiness.
    * Returns the Question ids in order.
    */
   practiceQuestions(items: PracticeQuestion[]): string[] {
@@ -456,8 +460,8 @@ export class Domain {
       checkHints(item.hints);
       if (item.questionId === undefined) checkOptions(item.type ?? "open", item.options);
     }
-    return this.#db.transaction((tx) =>
-      items.map((item) => {
+    return this.#db.transaction((tx) => {
+      const ids = items.map((item) => {
         if (item.questionId !== undefined) {
           const row = tx.select().from(questions).where(eq(questions.id, item.questionId)).get();
           if (!row || row.status !== "active") {
@@ -482,8 +486,11 @@ export class Domain {
           return duplicate.id;
         }
         return this.#insertQuestion(tx, topicId, { ...item, type: item.type ?? "open", origin: "interviewer" }, "active");
-      }),
-    );
+      });
+      const topicIds = tx.select({ topicId: questions.topicId }).from(questions).where(inArray(questions.id, ids)).all();
+      for (const { topicId } of topicIds) this.#linkToActiveTarget(tx, topicId);
+      return ids;
+    });
   }
 
   /** Completes the Activity if it is still running, such as a Practice set once graded. */
@@ -675,6 +682,22 @@ export class Domain {
       ...(!row.hints?.length && fill.hints?.length && { hints: fill.hints }),
     };
     if (Object.keys(set).length) tx.update(questions).set(set).where(eq(questions.id, row.id)).run();
+  }
+
+  /**
+   * Adds a Topic to the active Preparation target at medium priority unless the target already
+   * covers it (the Topic or a group it nests under is one of the target's Topics).
+   */
+  #linkToActiveTarget(tx: Tx, topicId: string): void {
+    const targetId = this.activeTargetId();
+    if (!targetId) return;
+    const linked = new Set(tx.select({ topicId: targetTopics.topicId }).from(targetTopics).where(eq(targetTopics.targetId, targetId)).all().map((r) => r.topicId));
+    for (let id: string | null = topicId; id; ) {
+      if (linked.has(id)) return;
+      id = tx.select({ parentId: topics.parentId }).from(topics).where(eq(topics.id, id)).get()?.parentId ?? null;
+    }
+    const last = tx.select({ last: max(targetTopics.position) }).from(targetTopics).where(eq(targetTopics.targetId, targetId)).get()?.last ?? -1;
+    tx.insert(targetTopics).values({ targetId, topicId, priority: "medium", position: last + 1 }).run();
   }
 
   /** Topics are shared across Preparation targets: the same name always means the same Topic. */

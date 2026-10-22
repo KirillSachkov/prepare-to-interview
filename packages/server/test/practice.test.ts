@@ -582,6 +582,32 @@ describe("Scheduling, Mastery, and readiness", () => {
     expect(await targetsDue()).toMatchObject({ readiness: 84, due: 1 });
   });
 
+  it("links a Topic outside the active target to it when its Question is practised or added, so progress sees the Attempts", async () => {
+    const { server, call } = await setUp();
+    const kafka = { topic: "Kafka", prompt: "Что гарантирует Kafka внутри партиции?", type: "single_choice", options: [{ text: "Порядок сообщений", correct: true }, { text: "Ничего", correct: false }] };
+    const quiz = await place(call, { title: "Kafka", kind: "quiz", cards: [kafka] });
+    await draft(server, quiz.cards[0]!.card_id, { choices: [0] });
+    await api(server, cardPaths.check(quiz.cards[0]!.card_id));
+    expect((await call("add_question", { topic: "Redis", prompt: "Зачем Redis нужен TTL?" })).isError).toBe(false);
+
+    const progress = await get<ProgressResponse>(server, apiPaths.progress);
+    expect(progress.topics.map((t) => [t.name, t.priority, t.questions, t.mastery])).toEqual([
+      ["RAG", "high", 0, null],
+      ["Evals", "medium", 0, null],
+      ["Kafka", "medium", 1, 1],
+      ["Redis", "medium", 1, null],
+    ]);
+    expect(progress.readiness).not.toBeNull();
+    // A Topic already in the target keeps its priority and place.
+    await place(call, { title: "RAG", kind: "quiz", cards: [{ ...kafka, topic: "RAG", prompt: "RAG: порядок?" }] });
+    expect((await get<ProgressResponse>(server, apiPaths.progress)).topics.map((t) => [t.name, t.priority])).toEqual([
+      ["RAG", "high"],
+      ["Evals", "medium"],
+      ["Kafka", "medium"],
+      ["Redis", "medium"],
+    ]);
+  });
+
   it("records a retry after feedback without moving the Leitner box or Mastery", async () => {
     const { server, call, grades } = await setUp();
     const placed = await place(call, { title: "X", cards: [openRag] });
