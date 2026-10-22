@@ -1,5 +1,5 @@
-// The Canvas with its chrome (prototype variant A, ADR-0004): toolbar, top-left menu and chip,
-// Chat toggle, zoom pill, shortcuts, context menus, hotkeys, and Zen mode.
+// The Canvas with its chrome (prototype variant A, ADR-0004): the Control panel, zoom pill,
+// shortcuts, context menus, hotkeys, and Zen mode.
 import {
   Background,
   BackgroundVariant,
@@ -13,12 +13,11 @@ import { chatNodeId } from "@prepare-to-interview/shared";
 import { flowNodeTypes, nodeMenu, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
 import { buildCommands, type Commands, type Tool } from "./commands.ts";
 import { ContextMenu, type OpenMenu } from "./ContextMenu.tsx";
+import { ControlPanel, type ControlPanelPopover } from "./ControlPanel.tsx";
 import { SettingsDialog, ShortcutsDialog } from "./dialogs.tsx";
 import { isTyping, matchesHotkey } from "./hotkeys.ts";
 import { commandEntry, type MenuEntry } from "./menu.ts";
-import { Toolbar } from "./Toolbar.tsx";
-import { TopLeftMenu } from "./TopLeftMenu.tsx";
-import { comingSoonLabel, cx, Icon, Kbd } from "./ui.tsx";
+import { comingSoonLabel, cx, Kbd } from "./ui.tsx";
 import { useCanvasNodes } from "./useCanvasNodes.ts";
 import { usePersistentState } from "./usePersistentState.ts";
 import { ZoomPill } from "./ZoomPill.tsx";
@@ -29,7 +28,6 @@ const fitOptions: FitViewOptions = { padding: fitPadding, maxZoom: 1 };
 const zoomDuration = { duration: 150 };
 
 type Dialog = "shortcuts" | "settings";
-type Popover = "menu" | "more";
 
 export function CanvasShell() {
   const rf = useReactFlow<FlowNode>();
@@ -40,7 +38,7 @@ export function CanvasShell() {
   const [zen, setZen] = useState(false);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
-  const [popover, setPopover] = useState<Popover | null>(null);
+  const [popover, setPopover] = useState<ControlPanelPopover | null>(null);
   const [focusRequest, setFocusRequest] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -124,7 +122,6 @@ export function CanvasShell() {
     setMenu({ x: event.clientX, y: event.clientY, target, entries });
 
   const shown = chatHidden ? nodes.filter((n) => n.id !== chatNodeId) : nodes;
-  const chat = commands["chat.toggle"];
 
   return (
     <SetCollapsedContext value={setCollapsed}>
@@ -169,7 +166,7 @@ export function CanvasShell() {
             // Text fields keep the browser's own menu (copy, paste, spelling).
             if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]")) return;
             event.preventDefault();
-            const own = nodeMenu(node, commands, setCollapsed);
+            const own = nodeMenu(node, { commands, target: event.target as Element }, setCollapsed);
             openMenu(event, own ? node.type : "canvas", own ?? paneMenu);
           }}
         >
@@ -178,32 +175,12 @@ export function CanvasShell() {
 
         {!zen && (
           <>
-            <TopLeftMenu
+            <ControlPanel
               commands={commands}
-              open={popover === "menu"}
-              setOpen={(open) => setPopover(open ? "menu" : null)}
+              popover={popover}
+              setPopover={setPopover}
               openSettings={() => setDialog("settings")}
             />
-            <Toolbar
-              commands={commands}
-              moreOpen={popover === "more"}
-              setMoreOpen={(open) => setPopover(open ? "more" : null)}
-            />
-            <div className="absolute top-4 right-4 z-30">
-              <button
-                type="button"
-                aria-label="Чат"
-                aria-pressed={chat.active}
-                title={`${chat.label} — ${chat.hotkey?.label ?? ""}`}
-                onClick={chat.run}
-                className={cx(
-                  "flex h-10 items-center gap-2 rounded-xl border px-3 text-[13px] shadow-sm",
-                  chat.active ? "border-indigo-100 bg-indigo-50 text-indigo-700" : "border-stone-200 bg-white text-stone-500",
-                )}
-              >
-                <Icon name="chat" /> Чат
-              </button>
-            </div>
             <ZoomPill commands={commands} />
             <button
               type="button"

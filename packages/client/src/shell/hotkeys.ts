@@ -9,7 +9,10 @@ export interface Hotkey {
   label: string;
   /** Physical key (`KeyboardEvent.code`); layout-independent, so letters work in any input language. */
   code?: string;
-  /** Produced characters (`KeyboardEvent.key`) for symbols whose physical key varies, such as `?` or `+`. */
+  /**
+   * Produced characters (`KeyboardEvent.key`) for symbols whose physical key varies, such as `?` or `+`.
+   * With both `code` and `key`, either matches: `?` also works on layouts where Shift+/ types another character.
+   */
   key?: readonly string[];
   mod?: boolean;
   shift?: boolean;
@@ -25,8 +28,8 @@ export function matchesHotkey(event: KeyboardEvent, hotkey: Hotkey): boolean {
   const mod = event.metaKey || event.ctrlKey;
   if (Boolean(hotkey.mod) !== mod || Boolean(hotkey.alt) !== event.altKey) return false;
   // Shift is part of a physical-key shortcut; for a character such as `?` it only produces the character.
-  if (hotkey.code !== undefined) return Boolean(hotkey.shift) === event.shiftKey && event.code === hotkey.code;
-  return hotkey.key?.includes(event.key) ?? false;
+  const byCode = hotkey.code !== undefined && Boolean(hotkey.shift) === event.shiftKey && event.code === hotkey.code;
+  return byCode || (hotkey.key?.includes(event.key) ?? false);
 }
 
 /** Typing into a field never triggers shortcuts. */

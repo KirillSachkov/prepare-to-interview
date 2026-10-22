@@ -175,6 +175,13 @@ test("tool, grid, Chat, Zen, and shortcuts hotkeys", async ({ page }) => {
   await expect(pressed("Выделение")).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+
+  // On the Russian layout Shift+/ types ",", yet the physical key still opens the dialog.
+  await page.evaluate(() =>
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Slash", key: ",", shiftKey: true })),
+  );
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
 });
 
 test("hotkeys never fire while typing in an input, textarea, or contenteditable", async ({ page }) => {

@@ -70,7 +70,7 @@ export const chatNodeType: NodeTypeDefinition<"chat"> = {
   View: ChatView,
   Summary: ChatSummary,
   dragHandle: ".drag",
-  menu: (node, commands) => [
+  menu: (node, { commands }) => [
     { label: node.collapsed ? "Развернуть" : "Свернуть", run: () => node.setCollapsed(!node.collapsed) },
     { label: "Новая тема разговора", hint: comingSoonLabel, disabled: true },
     "separator",

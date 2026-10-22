@@ -16,6 +16,12 @@ export interface NodeViewProps<K extends CanvasNodeKind> {
   setCollapsed: (collapsed: boolean) => void;
 }
 
+export interface NodeMenuContext {
+  commands: Commands;
+  /** The element right-clicked inside the node, to tell apart its parts (a Card inside a Practice set). */
+  target: Element;
+}
+
 export interface NodeTypeDefinition<K extends CanvasNodeKind> {
   /** Full rendering at normal zoom. Mark the element to focus on "show" with `data-focus-target`. */
   View: ComponentType<NodeViewProps<K>>;
@@ -24,7 +30,7 @@ export interface NodeTypeDefinition<K extends CanvasNodeKind> {
   /** CSS selector of the part that drags the node; the whole node drags when absent. */
   dragHandle?: string;
   /** Right-click entries for this node; the empty-Canvas menu is used when absent. */
-  menu?: (node: NodeViewProps<K>, commands: Commands) => MenuEntry[];
+  menu?: (node: NodeViewProps<K>, context: NodeMenuContext) => MenuEntry[];
 }
 
 /** One definition per node kind; the compiler rejects a kind added to the contract without one. */

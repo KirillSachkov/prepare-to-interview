@@ -194,7 +194,7 @@ export function buildCommands(c: ShellControls): Commands {
       id: "help.shortcuts",
       label: "Горячие клавиши",
       group: "Вид",
-      hotkey: { label: "?", key: ["?"] },
+      hotkey: { label: "?", key: ["?"], code: "Slash", shift: true },
       run: c.openShortcuts,
     },
     "ui.escape": {

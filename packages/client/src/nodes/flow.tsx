@@ -2,10 +2,9 @@
 import { useStore, type Node, type NodeProps, type NodeTypes } from "@xyflow/react";
 import { createContext, useContext } from "react";
 import type { CanvasNode, CanvasNodeKind } from "@prepare-to-interview/shared";
-import type { Commands } from "../shell/commands.ts";
 import type { MenuEntry } from "../shell/menu.ts";
 import { nodeTypeRegistry } from "./registry.ts";
-import type { NodeContent, NodeTypeDefinition, NodeViewProps } from "./types.ts";
+import type { NodeContent, NodeMenuContext, NodeTypeDefinition, NodeViewProps } from "./types.ts";
 
 /** Below this zoom nodes render their Summary instead of full details. */
 export const summaryZoom = 0.45;
@@ -65,9 +64,9 @@ export const flowNodeTypes: NodeTypes = Object.fromEntries(
 /** The node's own context-menu entries, or undefined when its type registers none. */
 export function nodeMenu(
   node: FlowNode,
-  commands: Commands,
+  context: NodeMenuContext,
   setCollapsed: (nodeId: string, collapsed: boolean) => void,
 ): MenuEntry[] | undefined {
   const definition = nodeTypeRegistry[node.type] as NodeTypeDefinition<CanvasNodeKind>;
-  return definition.menu?.(viewProps(node.id, node.data, Boolean(node.selected), setCollapsed), commands);
+  return definition.menu?.(viewProps(node.id, node.data, Boolean(node.selected), setCollapsed), context);
 }
