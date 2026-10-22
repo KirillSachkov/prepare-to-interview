@@ -5,8 +5,6 @@ import type { Database } from "../db/database.ts";
 import {
   activities,
   candidateProfile,
-  type ActivityStatus,
-  type QuestionType,
   decisionLog,
   preparationTargets,
   questions,
@@ -14,7 +12,9 @@ import {
   targetTopics,
   topics,
   type ActivityKind,
+  type ActivityStatus,
   type Mission,
+  type QuestionType,
   type TestOption,
   type TopicPriority,
   type Vacancy,
@@ -24,7 +24,8 @@ import type { EventBus } from "../events.ts";
 /**
  * A domain rule refused the request. The message says what is wrong and `fixHint` how to retry;
  * MCP tools return both to the agent. Refusals the Candidate can meet in the UI also carry
- * `candidateMessage`, the Russian text REST returns to the client.
+ * `candidateMessage`, the Russian text REST returns to the client: a lowercase clause the client
+ * shows after its own lead-in, such as «Не удалось добавить вопрос: …».
  */
 export class DomainError extends Error {
   readonly fixHint: string;
@@ -373,18 +374,22 @@ export class Domain {
 
   /**
    * Starts an Activity. At most one Activity runs at a time: an active Activity of the same kind
-   * continues, and one of another kind is abandoned. Onboarding that already saved its
-   * Preparation target counts as completed, so starting onboarding again sets up a new target.
+   * continues, and one of another kind is abandoned. With `newTarget`, an onboarding that already
+   * saved its Preparation target completes, and a fresh onboarding sets up the next target.
    */
-  startActivity(kind: ActivityKind, options: { targetId?: string | null } = {}): { activity: Activity; started: boolean } {
+  startActivity(kind: ActivityKind, options: { targetId?: string | null; newTarget?: boolean } = {}): { activity: Activity; started: boolean } {
     const result = this.#db.transaction((tx) => {
       const current = tx.select().from(activities).where(eq(activities.status, "active")).get();
-      const setUpTarget = current?.kind === "onboarding" && current.targetId !== null;
+      const setUpTarget = options.newTarget === true && current?.kind === "onboarding" && current.targetId !== null;
       if (current?.kind === kind && !setUpTarget) return { activity: current, started: false };
       const now = this.#now();
       if (current) {
         tx.update(activities)
-          .set({ status: setUpTarget ? "completed" : "abandoned", endedAt: now })
+          .set(
+            setUpTarget
+              ? { status: "completed", endedAt: now, summary: "Set up a Preparation target; the Candidate moved on to a new one." }
+              : { status: "abandoned", endedAt: now },
+          )
           .where(eq(activities.id, current.id))
           .run();
       }

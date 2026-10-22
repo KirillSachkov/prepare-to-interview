@@ -276,9 +276,12 @@ describe("onboarding Activity", () => {
     expect(driver().prompts[2]?.context).toBeUndefined();
 
     const mcp = await connectMcp(server);
+    // Calling it again mid-onboarding, even after a saved target, continues the same Activity.
+    await mcp.call("save_target", { role: "QA engineer" });
     const again = await mcp.call("start_activity", { kind: "onboarding" });
     expect(again.data).toMatchObject({ kind: "onboarding", started: false });
     expect(again.text).toMatch(/^Continuing the onboarding Activity\. Follow this skill:\n\n<activity_skill name="onboarding">/);
+    expect((await mcp.call("finish_activity", { status: "completed", summary: "QA target." })).isError).toBe(false);
   });
 });
 

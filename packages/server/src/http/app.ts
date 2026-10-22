@@ -87,7 +87,7 @@ export function createApp(deps: AppDeps): Hono {
   });
   app.post(apiPaths.newTarget, (c) => {
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
-    deps.domain.startActivity("onboarding");
+    deps.domain.startActivity("onboarding", { newTarget: true });
     try {
       return c.json({ message: deps.chat.send(newTargetMessage) }, 202);
     } catch (error) {
