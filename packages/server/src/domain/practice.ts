@@ -29,7 +29,7 @@ import {
   type RubricAnchors,
 } from "../db/schema.ts";
 import { checkTest, correctOptions, hintCap, maxHintRungs, maxScore } from "./arithmetic.ts";
-import { DomainError, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
+import { DomainError, languages, type Domain, type Language, type PracticeQuestion } from "./domain.ts";
 import type { Tx } from "./progress.ts";
 
 export interface PlaceSetInput {
@@ -192,7 +192,7 @@ export class Practice {
 
   cardContext(cardId: string): CardContext {
     const card = this.#card(cardId);
-    const set = this.#set(card.setId);
+    const set = this.#liveSet(card.setId);
     const question = this.#question(card.questionId);
     const attempt = card.attemptId ? this.#attempt(card.attemptId) : undefined;
     return {
@@ -531,8 +531,11 @@ export class Practice {
         .get();
       if (!running) this.#domain.completeActivity(set.activityId, `Practice set "${set.title}": ${result.score}/${result.max}, ${result.skipped} skipped.`);
     }
-    const node = this.#changed(setId);
-    if (result) this.#canvas.updateLayout([{ nodeId: setId, collapsed: true }]);
+    let node = this.#changed(setId);
+    if (result) {
+      this.#canvas.updateLayout([{ nodeId: setId, collapsed: true }]);
+      node = { ...node, collapsed: true };
+    }
     this.#domain.publishTargets();
     if (result) for (const listener of this.#gradedListeners) listener(result);
     return node;
@@ -640,7 +643,7 @@ export class Practice {
       .leftJoin(preparationTargets, eq(preparationTargets.id, practiceSets.targetId))
       .where(eq(practiceSets.id, setId))
       .get();
-    return (row?.language as Language | null | undefined) ?? "ru";
+    return languages.find((l) => l === row?.language) ?? "ru";
   }
 
   #set(setId: string): SetRow {

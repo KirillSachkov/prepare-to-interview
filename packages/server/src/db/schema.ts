@@ -127,7 +127,6 @@ export const topics = sqliteTable(
   (t) => [uniqueIndex("topics_key").on(t.key)],
 );
 
-
 export const targetTopics = sqliteTable(
   "target_topics",
   {
@@ -147,7 +146,6 @@ export interface TestOption {
   text: string;
   correct: boolean;
 }
-
 
 export type RubricAnchors = Partial<Record<"0" | "1" | "2" | "3", string>>;
 
@@ -230,7 +228,6 @@ export const practiceSets = sqliteTable("practice_sets", {
   /** When the Interviewer received the grading result in a turn's hidden context. */
   reportedAt: integer("reported_at", { mode: "timestamp_ms" }),
 });
-
 
 /** One Question placed on the Canvas inside a Practice set; holds the Candidate's draft. */
 export const cards = sqliteTable("cards", {

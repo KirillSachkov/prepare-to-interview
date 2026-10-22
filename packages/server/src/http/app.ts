@@ -139,7 +139,8 @@ export function createApp(deps: AppDeps): Hono {
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
     return domainResult(() => {
       const cardId = idParam(c);
-      if (deps.practice.cardPrompt(cardId) === undefined) return c.json({ error: "такой карточки нет. Обновите страницу." }, 404);
+      // Refuses an unknown Card or one in a dropped set before the Candidate's message is stored.
+      deps.practice.cardContext(cardId);
       return sendToChat(() => deps.chat.send(discussMessage, { cardId }));
     });
   });

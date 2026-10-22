@@ -74,11 +74,7 @@ export class PracticeRunner {
       } catch (error) {
         if (this.#stopped) return;
         const message = error instanceof GradingError ? error.message : "Не удалось проверить ответ. Попробуйте ещё раз.";
-        try {
-          this.#practice.gradingFailed(job.cardId, message);
-        } catch {
-          // The Card is gone; nothing is left to mark.
-        }
+        this.#practice.gradingFailed(job.cardId, message);
       }
     }
   }
