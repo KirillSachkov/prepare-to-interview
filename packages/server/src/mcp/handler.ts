@@ -1,0 +1,80 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+  type Tool,
+} from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import { ToolError, type ToolDefinition } from "./tool.ts";
+
+/** Server name agents see as the tool namespace (`mcp__interview__…`, `interview_…`). */
+export const mcpServerName = "interview";
+
+export type McpHandler = (request: Request) => Promise<Response>;
+
+/**
+ * Stateless Streamable HTTP: every request gets a fresh MCP server and transport, so agents can
+ * reconnect at will and no MCP session state lives in the app.
+ */
+export function createMcpHandler(tools: readonly ToolDefinition[], version: string): McpHandler {
+  const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  const listing = tools.map(describeTool);
+
+  return async (request) => {
+    const server = new McpServer({ name: mcpServerName, version }, { capabilities: { tools: {} } });
+    server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: listing }));
+    server.server.setRequestHandler(CallToolRequestSchema, (call) =>
+      callTool(byName, call.params.name, call.params.arguments),
+    );
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    await server.connect(transport);
+    try {
+      return await transport.handleRequest(request);
+    } finally {
+      await server.close();
+    }
+  };
+}
+
+function describeTool(tool: ToolDefinition): Tool {
+  return {
+    name: tool.name,
+    title: tool.title,
+    description: tool.description,
+    inputSchema: jsonSchema(tool.input, "input"),
+    outputSchema: jsonSchema(tool.output, "output"),
+  };
+}
+
+function jsonSchema(schema: z.ZodObject, io: "input" | "output"): Tool["inputSchema"] {
+  const { $schema: _ignored, ...rest } = z.toJSONSchema(schema, { io }) as Record<string, unknown>;
+  return { ...rest, type: "object" };
+}
+
+function callTool(byName: Map<string, ToolDefinition>, name: string, args: unknown): CallToolResult {
+  const tool = byName.get(name);
+  if (!tool) {
+    return toolError(`Unknown tool "${name}".`, `Call one of: ${[...byName.keys()].join(", ")}.`);
+  }
+  const parsed = tool.input.safeParse(args ?? {});
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((issue) => `- ${issue.path.join(".") || "(input)"}: ${issue.message}`);
+    return toolError(`Invalid input for ${tool.name}:\n${issues.join("\n")}`, tool.fixHint);
+  }
+  try {
+    const output = tool.output.parse(tool.run(parsed.data));
+    return { content: [{ type: "text", text: tool.summarize(output) }], structuredContent: output };
+  } catch (error) {
+    if (error instanceof ToolError) return toolError(error.message, error.fixHint);
+    throw error;
+  }
+}
+
+function toolError(message: string, fixHint: string): CallToolResult {
+  return { isError: true, content: [{ type: "text", text: `${message}\nFix: ${fixHint}` }] };
+}
