@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { startServer, type RunningServer } from "../src/server.ts";
+import { startServer, type RunningServer, type ServerOptions } from "../src/server.ts";
 
 export const testIndexHtml = "<!doctype html><title>canvas test</title><div id=root></div>";
 
@@ -19,11 +19,14 @@ export function makeTempDirs() {
   };
 }
 
-export async function startTestServer(dirs = makeTempDirs()): Promise<{
+export async function startTestServer(
+  dirs = makeTempDirs(),
+  options: Partial<ServerOptions> = {},
+): Promise<{
   server: RunningServer;
   dirs: ReturnType<typeof makeTempDirs>;
 }> {
-  const server = await startServer({ dataDir: dirs.dataDir, clientDir: dirs.clientDir, port: 0 });
+  const server = await startServer({ dataDir: dirs.dataDir, clientDir: dirs.clientDir, port: 0, ...options });
   return { server, dirs };
 }
 

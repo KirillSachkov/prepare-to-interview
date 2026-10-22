@@ -2,7 +2,7 @@
 
 A local app for technical interview practice in IT. Your own coding agent (Claude Code, Codex, or OpenCode, on your existing subscription) becomes a personal interviewer: it researches questions for the position you target, gives you practice sets and mock interviews on an interactive canvas, grades your answers, and tracks which topics you have mastered and which need repetition.
 
-> **Status:** early development. The app starts and shows a Canvas; interview features are not built yet.
+> **Status:** early development. The app starts, shows a Canvas, and lets you chat with the Interviewer on your own agent; practice features are not built yet.
 
 ## How it will work
 
@@ -23,6 +23,8 @@ pnpm start
 
 `pnpm start` builds the client, starts the server on `127.0.0.1`, and prints a URL with an access token. Open that URL; the browser keeps the token in a cookie afterwards. The token is generated on first start and stored in the data directory.
 
+The Canvas shows the Chat with the Interviewer. Pick your agent with the **Agent** button in the Chat header: the app lists Claude Code, Codex, and OpenCode and enables the ones it finds on your `PATH`. It uses the agent's own login and subscription (log in with `claude`, `codex login`, or `opencode auth login` first); OpenCode runs on the provider you configured in it, since OpenCode Zen free models do not work for third-party apps. The model field is optional. The Chat history and the agent's session survive a restart.
+
 Configuration (environment variables):
 
 - `PREPARE_TO_INTERVIEW_HOME`: data directory (default `~/.prepare-to-interview/`), holding the SQLite database and the token.
@@ -34,7 +36,7 @@ Configuration (environment variables):
 pnpm check
 ```
 
-`pnpm check` runs the tests (Vitest), lint (ESLint), and type check (`tsc`) across the workspace. Packages: `packages/server` (HTTP, WebSocket, MCP server, SQLite storage, agent drivers), `packages/client` (React Flow Canvas), `packages/shared` (API types). Interviewer persona and skills live in `interviewer/`. After changing `packages/server/src/db/schema.ts`, run `pnpm --filter @prepare-to-interview/server db:generate` to add a migration.
+`pnpm check` runs the tests (Vitest), lint (ESLint), and type check (`tsc`) across the workspace. Tests use a fake agent driver. To check a real agent, run `pnpm smoke <claude|codex|opencode> [--model <id>]`: it starts the app on a temporary data directory and walks the persona, hidden state, the app's MCP tool, the tool allowlist, resume after restart, and stop. It spends a little of the agent's limits. Packages: `packages/server` (HTTP, WebSocket, MCP server, SQLite storage, agent drivers), `packages/client` (React Flow Canvas), `packages/shared` (API types). Interviewer persona and skills live in `interviewer/`. After changing `packages/server/src/db/schema.ts`, run `pnpm --filter @prepare-to-interview/server db:generate` to add a migration.
 
 ## Documentation
 

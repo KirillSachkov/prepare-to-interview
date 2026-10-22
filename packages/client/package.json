@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@assistant-ui/react": "0.15.30",
     "@prepare-to-interview/shared": "workspace:*",
     "@xyflow/react": "12.12.0",
     "react": "19.3.1",

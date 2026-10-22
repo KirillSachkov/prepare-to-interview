@@ -8,6 +8,9 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.94.0",
+    "@agentclientprotocol/codex-acp": "2.2.2",
+    "@agentclientprotocol/sdk": "2.0.1",
     "@hono/node-server": "2.1.5",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@prepare-to-interview/shared": "workspace:*",

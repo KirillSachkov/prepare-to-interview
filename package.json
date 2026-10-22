@@ -11,7 +11,8 @@
     "check": "pnpm run test && pnpm run lint && pnpm run typecheck",
     "test": "vitest run",
     "lint": "eslint --max-warnings 0 .",
-    "typecheck": "pnpm -r --parallel typecheck"
+    "typecheck": "pnpm -r --parallel typecheck",
+    "smoke": "node packages/server/scripts/smoke.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

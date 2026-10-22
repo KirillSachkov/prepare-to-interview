@@ -10,24 +10,26 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import type { CanvasNode, DemoNoteNode } from "@prepare-to-interview/shared";
 import { fetchCanvas, subscribeToEvents } from "./api.ts";
+import { ChatNode, chatFlowNode, type ChatFlowNode } from "./chat/ChatNode.tsx";
 
 type DemoNoteFlowNode = Node<DemoNoteNode["data"], "demo_note">;
+type FlowNode = DemoNoteFlowNode | ChatFlowNode;
 
-const nodeTypes = { demo_note: DemoNote };
+const nodeTypes = { demo_note: DemoNote, chat: ChatNode };
 
 function toFlowNode(node: CanvasNode): DemoNoteFlowNode {
   return { id: node.id, type: node.kind, position: node.position, data: node.data };
 }
 
 /** Adds nodes not shown yet; snapshot and live events may deliver the same node twice. */
-function mergeNodes(current: DemoNoteFlowNode[], incoming: CanvasNode[]): DemoNoteFlowNode[] {
+function mergeNodes(current: FlowNode[], incoming: CanvasNode[]): FlowNode[] {
   const known = new Set(current.map((n) => n.id));
   const added = incoming.filter((n) => !known.has(n.id)).map(toFlowNode);
   return added.length ? [...current, ...added] : current;
 }
 
 export function App() {
-  const [nodes, setNodes] = useState<DemoNoteFlowNode[]>([]);
+  const [nodes, setNodes] = useState<FlowNode[]>([chatFlowNode]);
   const [error, setError] = useState<string>();
 
   useEffect(
@@ -42,8 +44,9 @@ export function App() {
             })
             .catch((e: unknown) => setError(String(e)));
         },
-        // The only event so far is canvas.node_added; new kinds will need a switch here.
-        onEvent: (event) => setNodes((current) => mergeNodes(current, [event.node])),
+        onEvent: (event) => {
+          if (event.type === "canvas.node_added") setNodes((current) => mergeNodes(current, [event.node]));
+        },
         onDisconnect: () =>
           setError("No live connection to the app. Check that `pnpm start` is running, then open the URL it printed."),
       }),
@@ -51,7 +54,7 @@ export function App() {
   );
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<DemoNoteFlowNode>[]) => setNodes((current) => applyNodeChanges(changes, current)),
+    (changes: NodeChange<FlowNode>[]) => setNodes((current) => applyNodeChanges(changes, current)),
     [],
   );
 
