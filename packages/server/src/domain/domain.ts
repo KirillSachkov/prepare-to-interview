@@ -5,6 +5,8 @@ import type { Database } from "../db/database.ts";
 import {
   activities,
   candidateProfile,
+  type ActivityStatus,
+  type QuestionType,
   decisionLog,
   preparationTargets,
   questions,
@@ -21,17 +23,24 @@ import type { EventBus } from "../events.ts";
 
 /**
  * A domain rule refused the request. The message says what is wrong and `fixHint` how to retry;
- * MCP tools return both to the agent, REST returns them to the client.
+ * MCP tools return both to the agent. Refusals the Candidate can meet in the UI also carry
+ * `candidateMessage`, the Russian text REST returns to the client.
  */
 export class DomainError extends Error {
   readonly fixHint: string;
   readonly kind: "invalid" | "not_found";
+  readonly candidateMessage: string | undefined;
 
-  constructor(message: string, fixHint: string, kind: "invalid" | "not_found" = "invalid") {
+  constructor(
+    message: string,
+    fixHint: string,
+    options: { kind?: "invalid" | "not_found"; candidateMessage?: string } = {},
+  ) {
     super(message);
     this.name = "DomainError";
     this.fixHint = fixHint;
-    this.kind = kind;
+    this.kind = options.kind ?? "invalid";
+    this.candidateMessage = options.candidateMessage;
   }
 }
 
@@ -39,8 +48,6 @@ export const markets = ["ru"] as const;
 export const languages = ["ru", "en"] as const;
 export type Market = (typeof markets)[number];
 export type Language = (typeof languages)[number];
-export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
-export type QuestionType = (typeof questionTypes)[number];
 
 export interface ProfileUpdate {
   experience?: string | null;
@@ -104,7 +111,7 @@ export interface Decision {
 export interface Activity {
   id: string;
   kind: ActivityKind;
-  status: "active" | "completed" | "skipped" | "abandoned";
+  status: ActivityStatus;
   targetId: string | null;
   startedAt: Date;
   endedAt: Date | null;
@@ -336,9 +343,11 @@ export class Domain {
         .all()
         .find((q) => normalize(q.prompt) === promptKey);
       if (duplicate) {
+        const topic = tx.select({ name: topics.name }).from(topics).where(eq(topics.id, topicId)).get()?.name ?? input.topic;
         throw new DomainError(
-          `The bank already has this Question in Topic "${input.topic}" (question ${duplicate.id}).`,
+          `The bank already has this Question in Topic "${topic}" (question ${duplicate.id}).`,
           "Do not add it again; tell the Candidate it is already in the bank.",
+          { candidateMessage: `такой вопрос уже есть в банке, тема «${topic}».` },
         );
       }
       const id = crypto.randomUUID();
@@ -363,15 +372,22 @@ export class Domain {
   }
 
   /**
-   * Starts an Activity. An active Activity of the same kind continues; one of another kind is
-   * abandoned, since at most one Activity runs at a time.
+   * Starts an Activity. At most one Activity runs at a time: an active Activity of the same kind
+   * continues, and one of another kind is abandoned. Onboarding that already saved its
+   * Preparation target counts as completed, so starting onboarding again sets up a new target.
    */
   startActivity(kind: ActivityKind, options: { targetId?: string | null } = {}): { activity: Activity; started: boolean } {
     const result = this.#db.transaction((tx) => {
       const current = tx.select().from(activities).where(eq(activities.status, "active")).get();
-      if (current?.kind === kind) return { activity: current, started: false };
+      const setUpTarget = current?.kind === "onboarding" && current.targetId !== null;
+      if (current?.kind === kind && !setUpTarget) return { activity: current, started: false };
       const now = this.#now();
-      if (current) tx.update(activities).set({ status: "abandoned", endedAt: now }).where(eq(activities.id, current.id)).run();
+      if (current) {
+        tx.update(activities)
+          .set({ status: setUpTarget ? "completed" : "abandoned", endedAt: now })
+          .where(eq(activities.id, current.id))
+          .run();
+      }
       const activity: Activity = {
         id: crypto.randomUUID(),
         kind,
@@ -482,16 +498,25 @@ export class Domain {
     const parentId = group ? this.#findOrCreateTopic(tx, group) : undefined;
     const existing = tx.select().from(topics).where(eq(topics.key, key)).get();
     if (existing) {
-      if (parentId && !existing.parentId && parentId !== existing.id) {
+      if (parentId && !existing.parentId && !this.#isWithin(tx, parentId, existing.id)) {
         tx.update(topics).set({ parentId }).where(eq(topics.id, existing.id)).run();
       }
       return existing.id;
     }
     const id = crypto.randomUUID();
     tx.insert(topics)
-      .values({ id, name: name.trim().replace(/\s+/g, " "), key, parentId: parentId ?? null, createdAt: this.#now() })
+      .values({ id, name: tidy(name), key, parentId: parentId ?? null, createdAt: this.#now() })
       .run();
     return id;
+  }
+
+  /** Whether `topicId` is `ancestorId` or nests under it; keeps Topic groups free of cycles. */
+  #isWithin(tx: Tx, topicId: string, ancestorId: string): boolean {
+    for (let id: string | null = topicId; id; ) {
+      if (id === ancestorId) return true;
+      id = tx.select({ parentId: topics.parentId }).from(topics).where(eq(topics.id, id)).get()?.parentId ?? null;
+    }
+    return false;
   }
 
   #checkDate(date: string | null): string | null {
@@ -524,7 +549,10 @@ function setActiveTarget(db: Database | Tx, targetId: string): void {
 
 function unknownTarget(id: string, known: TargetsResponse): DomainError {
   const list = known.targets.map((t) => `${t.id} (${t.name})`).join(", ") || "none yet";
-  return new DomainError(`No Preparation target with id "${id}".`, `Use one of: ${list}.`, "not_found");
+  return new DomainError(`No Preparation target with id "${id}".`, `Use one of: ${list}.`, {
+    kind: "not_found",
+    candidateMessage: "такой цели подготовки нет. Обновите страницу.",
+  });
 }
 
 function toVacancy(v: Partial<Vacancy>): Vacancy {
@@ -547,8 +575,14 @@ function checkOptions(type: QuestionType, options: TestOption[] | undefined): vo
   }
 }
 
+/** Text with surrounding space trimmed and inner runs of space collapsed. */
+function tidy(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
+
+/** The comparison key for Topic names and Question prompts: tidy and case-insensitive. */
 function normalize(text: string): string {
-  return text.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  return tidy(text).toLocaleLowerCase();
 }
 
 /** The local calendar date of an instant as `YYYY-MM-DD`. */

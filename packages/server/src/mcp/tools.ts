@@ -1,10 +1,9 @@
 import { z } from "zod";
 import type { Canvas } from "../canvas/canvas.ts";
-import { topicPriorities } from "../db/schema.ts";
+import { questionTypes, topicPriorities } from "../db/schema.ts";
 import {
   languages,
   markets,
-  questionTypes,
   type CandidateProfile,
   type Domain,
   type TargetDetail,
@@ -23,7 +22,7 @@ const topicName = shortText(120).describe("Topic name as the Market names it, su
 const calendarDate = z.iso.date().describe("Local calendar date YYYY-MM-DD.");
 
 const missionInput = z.strictObject({
-  why: shortText(1000).nullish().describe("Why the Candidate prepares for this position."),
+  why: shortText(1000).nullish().describe("Why the Candidate pursues this Preparation target."),
   success: shortText(1000).nullish().describe("What success looks like."),
   constraints: shortText(1000).nullish().describe("Time, schedule, and other constraints."),
   out_of_scope: shortText(1000).nullish().describe("What is deliberately left out."),
@@ -143,12 +142,17 @@ export function createTools({ canvas, domain, interviewer }: ToolDeps): ToolDefi
         stack: z.array(shortText(80)).max(50).optional(),
         strengths: z.array(shortText(200)).max(30).optional(),
         weak_spots: z.array(shortText(200)).max(30).optional(),
-        preferences: shortText(2000).nullish().describe("Format preferences, such as language of practice or session length."),
+        preferences: shortText(2000).nullish().describe("Format preferences, such as the language of practice or how long a Practice set should take."),
         calibration: z
           .array(
             z.strictObject({
               topic: topicName,
-              level: z.number().int().min(0).max(3).describe("0 none, 1 fragments, 2 key idea with gaps, 3 solid."),
+              level: z
+                .number()
+                .int()
+                .min(0)
+                .max(3)
+                .describe("Rubric score: 0 wrong or missing, 1 fragments without the key idea, 2 key idea with gaps, 3 complete and justified."),
               note: shortText(500).nullish().describe("What the probe answer showed."),
             }),
           )

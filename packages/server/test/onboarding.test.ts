@@ -236,6 +236,32 @@ describe("onboarding Activity", () => {
     expect(prompt.context?.[0]?.uri).toBe(skillUri("onboarding"));
   });
 
+  it("sends the skill again when the turn that carried it failed", async () => {
+    const { server, driver } = await start([[{ fail: new Error("agent crashed") }], [reply("Привет!")]]);
+    await say(server, "Привет");
+    await say(server, "Ещё раз привет");
+
+    expect(driver().prompts.map((p) => p.context?.[0]?.uri)).toEqual([skillUri("onboarding"), skillUri("onboarding")]);
+  });
+
+  it("sets up a second target as a new onboarding Activity when «Новая цель» comes mid-onboarding", async () => {
+    const { server, driver } = await start([[reply("Расскажите о себе.")], [reply("Какую позицию добавим?")]]);
+    await say(server, "Привет");
+    const mcp = await connectMcp(server);
+    await mcp.call("save_target", { role: "Backend developer" });
+
+    expect((await api(server, apiPaths.newTarget, { method: "POST" })).status).toBe(202);
+    await settled(server);
+    const [first, second] = driver().prompts.map((p) => state(p).activity?.id);
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    expect(driver().prompts[1]?.context?.[0]?.uri).toBe(skillUri("onboarding"));
+
+    // The new Activity waits for its own target before it can complete.
+    const early = await mcp.call("finish_activity", { status: "completed", summary: "Done." });
+    expect(early.text).toMatch(/^Onboarding cannot complete before a Preparation target is saved\./);
+  });
+
   it("returns the skill from start_activity and does not send it again in the same Agent session", async () => {
     const { server, driver } = await start([
       [tool("finish_activity", { status: "skipped", summary: "Skipped." })],
@@ -318,6 +344,14 @@ describe("Preparation target tools", () => {
       active_target: { name: "Go backend", topics: [{ name: "Go concurrency" }, { name: "SQL", priority: "medium" }] },
       targets: [{ name: "Go backend" }, { name: "Data engineer" }],
     });
+  });
+
+  it("never nests Topic groups into a cycle", async () => {
+    const { server } = await start();
+    const mcp = await connectMcp(server);
+    await mcp.call("save_target", { role: "Backend", topics: [{ name: "Indexes", priority: "high", group: "PostgreSQL" }] });
+    const second = await mcp.call("save_target", { role: "DBA", topics: [{ name: "PostgreSQL", priority: "high", group: "Indexes" }] });
+    expect(second.data).toMatchObject({ topics: [{ name: "PostgreSQL", group: null }] });
   });
 
   it("switches the active target from the Control panel, live, and the Interviewer follows it", async () => {
@@ -425,7 +459,7 @@ describe("the Candidate's own Question", () => {
       method: "POST",
       body: { topic: "kafka", prompt: "Что такое consumer group?" },
     });
-    expect(again.status).toBe(400);
+    expect(again).toEqual({ status: 400, body: { error: "такой вопрос уже есть в банке, тема «Kafka»." } });
     expect((await api(server, apiPaths.questions, { method: "POST", body: { topic: "", prompt: "x" } })).status).toBe(400);
   });
 });

@@ -59,10 +59,11 @@ export class Interviewer {
 
   /**
    * What the agent receives for one Candidate message in the given Agent session: the hidden
-   * state and, the first time the session meets the running Activity, its skill. A Candidate
-   * without any Preparation target starts in onboarding unless they skipped it before.
+   * state and, until the session has the running Activity's skill, that skill. A Candidate
+   * without any Preparation target starts in onboarding unless they skipped it before. Call
+   * `sent` once the agent took the turn, so a failed turn sends the skill again.
    */
-  turnInput(text: string, agentSessionId: string): TurnInput {
+  turnInput(text: string, agentSessionId: string): { input: TurnInput; sent: () => void } {
     this.#lastSession = agentSessionId;
     if (!this.#domain.targets().targets.length && !this.#domain.onboardingStarted() && !this.#domain.currentActivity()) {
       this.#domain.startActivity("onboarding");
@@ -71,9 +72,11 @@ export class Interviewer {
     const activity = hiddenState.activity;
     const skill = activity && this.#skills.get(activity.kind);
     const key = activity && `${agentSessionId}:${activity.id}`;
-    if (!skill || !key || this.#delivered.has(key)) return { text, hiddenState };
-    this.#delivered.add(key);
-    return { text, hiddenState, context: [{ uri: skillUri(activity.kind), text: skill }] };
+    if (!skill || !key || this.#delivered.has(key)) return { input: { text, hiddenState }, sent: () => undefined };
+    return {
+      input: { text, hiddenState, context: [{ uri: skillUri(activity.kind), text: skill }] },
+      sent: () => this.#delivered.add(key),
+    };
   }
 
   /**

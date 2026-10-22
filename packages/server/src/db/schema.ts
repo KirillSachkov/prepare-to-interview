@@ -141,12 +141,15 @@ export interface TestOption {
   correct: boolean;
 }
 
+export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
+export type QuestionType = (typeof questionTypes)[number];
+
 export const questions = sqliteTable("questions", {
   id: text("id").primaryKey(),
   topicId: text("topic_id")
     .notNull()
     .references(() => topics.id),
-  type: text("type", { enum: ["open", "single_choice", "multiple_choice"] }).notNull(),
+  type: text("type", { enum: questionTypes }).notNull(),
   prompt: text("prompt").notNull(),
   options: text("options", { mode: "json" }).$type<TestOption[]>(),
   referenceAnswer: text("reference_answer"),
@@ -169,11 +172,14 @@ export const decisionLog = sqliteTable("decision_log", {
 export const activityKinds = ["onboarding", "research", "practice_set", "mock_interview", "review"] as const;
 export type ActivityKind = (typeof activityKinds)[number];
 
+export const activityStatuses = ["active", "completed", "skipped", "abandoned"] as const;
+export type ActivityStatus = (typeof activityStatuses)[number];
+
 /** One bounded piece of work with the Interviewer; at most one is active at a time. */
 export const activities = sqliteTable("activities", {
   id: text("id").primaryKey(),
   kind: text("kind", { enum: activityKinds }).notNull(),
-  status: text("status", { enum: ["active", "completed", "skipped", "abandoned"] }).notNull(),
+  status: text("status", { enum: activityStatuses }).notNull(),
   targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
   endedAt: integer("ended_at", { mode: "timestamp_ms" }),

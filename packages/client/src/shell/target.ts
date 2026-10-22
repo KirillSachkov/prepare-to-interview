@@ -31,26 +31,33 @@ export const fetchTopics = () => request<TopicsResponse>(apiPaths.topics);
 export const addOwnQuestion = (question: AddQuestionRequest) =>
   request<AddQuestionResponse>(apiPaths.questions, { method: "POST", body: question });
 
+const refreshIntervalMs = 30 * 60_000;
+
 /** The Preparation targets as stored on the server, kept live over the event channel. */
 export function useTargets(): TargetsView {
   const [targets, setTargets] = useState<TargetsResponse>({ activeId: null, targets: [] });
   const [error, setError] = useState<string>();
 
-  useEffect(
-    () =>
-      subscribeToEvents({
-        onOpen: () => {
-          fetchTargets()
-            .then(setTargets)
-            .catch(() => undefined);
-        },
-        onEvent: (event) => {
-          if (event.type === "targets.changed") setTargets(event.targets);
-        },
-        onDisconnect: () => undefined,
-      }),
-    [],
-  );
+  useEffect(() => {
+    const refresh = () => {
+      fetchTargets()
+        .then(setTargets)
+        .catch(() => undefined);
+    };
+    const unsubscribe = subscribeToEvents({
+      onOpen: refresh,
+      onEvent: (event) => {
+        if (event.type === "targets.changed") setTargets(event.targets);
+      },
+      onDisconnect: () => undefined,
+    });
+    // Days left change at midnight without any domain change.
+    const timer = setInterval(refresh, refreshIntervalMs);
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+    };
+  }, []);
 
   const switchTo = useCallback((id: string) => {
     setError(undefined);

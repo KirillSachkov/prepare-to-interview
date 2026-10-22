@@ -132,10 +132,9 @@ export class Chat {
       const live = await this.#session(agent, models[agent]);
       if (turn.stopRequested) return;
       turn.prompting = live.session;
-      const result = await live.session.prompt(
-        this.#deps.interviewer.turnInput(text, live.rowId),
-        (event) => this.#onEvent(turn, live, event),
-      );
+      const next = this.#deps.interviewer.turnInput(text, live.rowId);
+      const result = await live.session.prompt(next.input, (event) => this.#onEvent(turn, live, event));
+      next.sent();
       this.#finishReply(turn, result.stopReason === "cancelled" ? "cancelled" : "complete");
     } catch (error) {
       // A turn cut off by shutdown leaves its reply streaming; the next start marks it interrupted.

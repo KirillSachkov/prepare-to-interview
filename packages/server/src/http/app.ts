@@ -82,13 +82,18 @@ export function createApp(deps: AppDeps): Hono {
   app.get(apiPaths.targets, (c) => c.json(deps.domain.targets()));
   app.put(apiPaths.activeTarget, async (c) => {
     const body = switchTargetRequest.safeParse(await readJson(c.req.raw));
-    if (!body.success) return c.json({ error: 'Send {"targetId": "<id>"}.' }, 400);
+    if (!body.success) return c.json({ error: "Не указана цель подготовки." }, 400);
     return domainResult(() => c.json(deps.domain.switchTarget(body.data.targetId)));
   });
   app.post(apiPaths.newTarget, (c) => {
-    if (deps.chat.busy) return c.json({ error: new ChatBusyError().message }, 409);
+    if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
     deps.domain.startActivity("onboarding");
-    return c.json({ message: deps.chat.send(newTargetMessage) }, 202);
+    try {
+      return c.json({ message: deps.chat.send(newTargetMessage) }, 202);
+    } catch (error) {
+      if (error instanceof ChatBusyError) return c.json({ error: chatBusyMessage }, 409);
+      throw error;
+    }
   });
   app.get(apiPaths.topics, (c) => c.json({ topics: deps.domain.topicNames() } satisfies TopicsResponse));
   app.post(apiPaths.questions, async (c) => {
@@ -148,13 +153,16 @@ const addQuestionRequest = z.strictObject({
 /** What the Candidate says in the Chat when they press «Новая цель». */
 export const newTargetMessage = "Хочу добавить новую цель подготовки.";
 
-/** Answers a refused domain change with its message: 404 for an unknown record, 400 otherwise. */
+const chatBusyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
+
+/** Answers a refused domain change with its Russian text: 404 for an unknown record, 400 otherwise. */
 function domainResult(respond: () => Response): Response {
   try {
     return respond();
   } catch (error) {
     if (!(error instanceof DomainError)) throw error;
-    return Response.json({ error: error.message }, { status: error.kind === "not_found" ? 404 : 400 });
+    const message = error.candidateMessage ?? "приложение отклонило запрос.";
+    return Response.json({ error: message }, { status: error.kind === "not_found" ? 404 : 400 });
   }
 }
 
