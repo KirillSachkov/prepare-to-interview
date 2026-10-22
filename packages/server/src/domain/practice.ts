@@ -119,6 +119,10 @@ export interface CardContext {
 }
 
 type SetRow = typeof practiceSets.$inferSelect;
+interface Tidy {
+  collapse: string[];
+  archive: string[];
+}
 type CardRow = typeof cards.$inferSelect;
 type QuestionRow = typeof questions.$inferSelect;
 type AttemptRow = typeof attempts.$inferSelect;
@@ -321,8 +325,7 @@ export class Practice {
     this.archiveStale();
     const now = this.#now();
     const id = crypto.randomUUID();
-    const collapse: string[] = [];
-    const archive: string[] = [];
+    let tidy: Tidy = { collapse: [], archive: [] };
     const expired = this.#db
       .select()
       .from(practiceSets)
@@ -336,18 +339,7 @@ export class Practice {
         for (const card of this.#cards(set.id, tx)) if (card.status === "open") this.#answer(tx, card);
         tx.update(practiceSets).set({ status: "grading", submittedAt: set.deadline }).where(eq(practiceSets.id, set.id)).run();
       }
-      // Auto-tidy (ADR-0004): the latest result Card stays collapsed next to the new set; older ones move to history.
-      const results = tx
-        .select({ id: practiceSets.id })
-        .from(practiceSets)
-        .where(and(eq(practiceSets.status, "graded"), isNull(practiceSets.archivedAt)))
-        // Insertion order breaks ties within a millisecond.
-        .orderBy(desc(practiceSets.gradedAt), desc(sql`rowid`))
-        .all()
-        .map((r) => r.id);
-      collapse.push(...results.slice(0, 1));
-      archive.push(...results.slice(1));
-      if (archive.length) tx.update(practiceSets).set({ archivedAt: now }).where(inArray(practiceSets.id, archive)).run();
+      tidy = this.#tidy(tx, now);
       tx.insert(practiceSets)
         .values({
           id,
@@ -367,11 +359,17 @@ export class Practice {
         .run();
     });
     if (unfinished) this.#canvas.removed(unfinished.setId);
-    for (const setId of archive) this.#canvas.removed(setId);
     for (const set of expired) this.#settle(set.id);
-    const expanded = [...this.#canvas.layouts(collapse).entries()].filter(([, l]) => !l.collapsed).map(([nodeId]) => nodeId);
-    if (expanded.length) this.#canvas.updateLayout(expanded.map((nodeId) => ({ nodeId, collapsed: true })));
+    this.#tidied(tidy);
     return { node: this.placeNode(id), activity: { id: activity.id, started } };
+  }
+
+  /**
+   * Auto-tidy before new work appears on the Canvas (ADR-0004), such as a Mock interview: the
+   * latest result Card stays collapsed, older ones move to history.
+   */
+  tidyResults(): void {
+    this.#tidied(this.#db.transaction((tx) => this.#tidy(tx, this.#now())));
   }
 
   /** Puts a new set's node right of the rightmost node and tells live clients. */
@@ -417,7 +415,7 @@ export class Practice {
     const card = this.#card(cardId);
     // A Card whose grading failed can still be skipped instead of checked again.
     if (card.status !== "failed") this.#openCard(cardId);
-    else this.#liveSet(card.setId);
+    else this.#onCanvas(card.setId);
     if (this.#set(card.setId).mode === "mock" && card.status !== "failed") throw mockAnswerOnly();
     this.#db.transaction((tx) => this.#record(tx, card, { skipped: true }));
     return this.#settle(card.setId);
@@ -454,7 +452,8 @@ export class Practice {
    */
   check(cardId: string): { node: PracticeSetNode; jobs: GradingJob[] } {
     const card = this.#card(cardId);
-    const set = this.#liveSet(card.setId);
+    // Refused before anything is written: a set in history has no node to settle on.
+    const set = this.#onCanvas(card.setId);
     if (card.status !== "open" && card.status !== "failed") throw invalid("This Card is already answered.", "на карточку уже есть ответ.");
     if (card.status === "open" && set.mode === "mock") throw mockAnswerOnly();
     if (card.status === "open" && set.status === "active" && set.reveal === "after_submit" && !card.retry) {
@@ -513,11 +512,7 @@ export class Practice {
    */
   archiveStale(): string[] {
     const today = localDate(this.#now());
-    const stale = this.#db
-      .select({ id: practiceSets.id, gradedAt: practiceSets.gradedAt })
-      .from(practiceSets)
-      .where(and(eq(practiceSets.status, "graded"), isNull(practiceSets.archivedAt)))
-      .all()
+    const stale = this.#results(this.#db)
       .filter((s) => s.gradedAt && localDate(s.gradedAt) < today)
       .map((s) => s.id);
     if (!stale.length) return [];
@@ -588,6 +583,41 @@ export class Practice {
   }
 
   // Internals
+
+  /**
+   * Result Cards auto-tidy may move to history, latest first: graded sets still on the Canvas
+   * whose Cards are all answered. A set with a retry still open, grading, or failed stays.
+   */
+  #results(tx: Tx | Database): { id: string; gradedAt: Date | null }[] {
+    return tx
+      .select({ id: practiceSets.id, gradedAt: practiceSets.gradedAt })
+      .from(practiceSets)
+      .where(
+        and(
+          eq(practiceSets.status, "graded"),
+          isNull(practiceSets.archivedAt),
+          sql`not exists (select 1 from ${cards} where ${cards.setId} = ${practiceSets.id} and ${cards.status} in ('open', 'grading', 'failed'))`,
+        ),
+      )
+      // Insertion order breaks ties within a millisecond.
+      .orderBy(desc(practiceSets.gradedAt), desc(sql`${practiceSets}.rowid`))
+      .all();
+  }
+
+  /** Archives all but the latest result Card; returns what to collapse and what left the Canvas. */
+  #tidy(tx: Tx, now: Date): Tidy {
+    const results = this.#results(tx).map((r) => r.id);
+    const tidy = { collapse: results.slice(0, 1), archive: results.slice(1) };
+    if (tidy.archive.length) tx.update(practiceSets).set({ archivedAt: now }).where(inArray(practiceSets.id, tidy.archive)).run();
+    return tidy;
+  }
+
+  /** Tells live clients what auto-tidy changed. */
+  #tidied(tidy: Tidy): void {
+    for (const setId of tidy.archive) this.#canvas.removed(setId);
+    const expanded = [...this.#canvas.layouts(tidy.collapse).entries()].filter(([, l]) => !l.collapsed).map(([nodeId]) => nodeId);
+    if (expanded.length) this.#canvas.updateLayout(expanded.map((nodeId) => ({ nodeId, collapsed: true })));
+  }
 
   #waitingCard(cardId: string): CardRow | undefined {
     const card = this.#db.select().from(cards).where(eq(cards.id, cardId)).get();
@@ -865,7 +895,7 @@ export class Practice {
   #openCard(cardId: string): CardRow {
     const card = this.#card(cardId);
     if (card.status !== "open") throw invalid("This Card is already answered.", "на карточку уже есть ответ.");
-    this.#liveSet(card.setId);
+    this.#onCanvas(card.setId);
     return card;
   }
 

@@ -14,6 +14,7 @@ import {
   skillUri,
   type CanvasSnapshot,
   type ChatSnapshot,
+  type HistoryResponse,
   type MockRequest,
   type PracticeSetNode,
   type ProgressResponse,
@@ -195,6 +196,28 @@ async function answerCard(server: RunningServer, cardId: string, draft: { text?:
 }
 
 describe("Starting a Mock interview", () => {
+  it("tidies earlier results like a new Practice set: the latest stays collapsed, older ones move to history", async () => {
+    const h = await setUp([[tool("next_mock_question", { question: firstQuestion }), reply("Начнём.")]]);
+    const quizzes: string[] = [];
+    for (const title of ["Первый", "Второй"]) {
+      const placed = (await h.call("place_practice_set", { title, kind: "quiz", cards: [{ ...testQuestion, prompt: `${title}: какая метрика оценивает ретривер?` }] })).data as {
+        practice_set_id: string;
+        cards: { card_id: string }[];
+      };
+      await api(h.server, cardPaths.draft(placed.cards[0]!.card_id), { method: "PUT", body: { choices: [0] } });
+      await api(h.server, cardPaths.check(placed.cards[0]!.card_id));
+      await api(h.server, apiPaths.canvasLayout, { method: "PUT", body: { updates: [{ nodeId: placed.practice_set_id, collapsed: false }] } });
+      quizzes.push(placed.practice_set_id);
+    }
+    await startMock(h);
+    const nodes = practiceSets(await get<CanvasSnapshot>(h.server, apiPaths.canvas));
+    expect(nodes.map((n) => [n.data.title, n.collapsed])).toEqual([
+      ["Второй", true],
+      ["Мок-интервью", false],
+    ]);
+    expect((await get<HistoryResponse>(h.server, apiPaths.history)).entries.map((e) => e.id)).toEqual([quizzes[0]]);
+  });
+
   it("starts with duration and focus, loads the interview skill, and lets the Interviewer place the first Card", async () => {
     const h = await setUp([[tool("next_mock_question", { question: firstQuestion }), reply("Начнём. Первый вопрос — на холсте.")]]);
     const set = await startMock(h);

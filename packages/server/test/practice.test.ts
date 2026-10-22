@@ -462,6 +462,27 @@ describe("Submitting and grading", () => {
 });
 
 describe("Grading edge cases", () => {
+  it("keeps a result Card with an open retry on the Canvas through auto-tidy, so the retry can be checked", async () => {
+    const { server, call, setDay } = await setUp();
+    const first = await place(call, { title: "Первая", kind: "quiz", cards: [singleEvals] });
+    const retried = first.cards[0]!.card_id;
+    await draft(server, retried, { choices: [1] });
+    await api(server, cardPaths.check(retried));
+    expect((await api(server, cardPaths.retry(retried))).status).toBe(200);
+    const second = await place(call, { title: "Вторая", kind: "quiz", cards: [multiEvals] });
+    await draft(server, second.cards[0]!.card_id, { choices: [0, 1] });
+    await api(server, cardPaths.check(second.cards[0]!.card_id));
+    // A new set archives older results, and a new day archives all, but not one with a retry still open.
+    await place(call, { title: "Третья", kind: "quiz", cards: [{ ...singleEvals, prompt: "Третий вопрос?" }] });
+    setDay(23);
+    expect((await sets(server)).map((s) => s.data.title)).toEqual(["Первая", "Третья"]);
+
+    await draft(server, retried, { choices: [0] });
+    const checked = await api(server, cardPaths.check(retried));
+    expect(checked.status).toBe(202);
+    expect(card(checked.body as PracticeSetNode, 0)).toMatchObject({ status: "graded", attempt: { score: 3 } });
+  });
+
   it("discards a Grader verdict that arrives after its set was dropped", async () => {
     const { server, call, grades, gate } = await setUp();
     const placed = await place(call, { title: "Первая", reveal: "each_answer", cards: [openRag, singleEvals] });

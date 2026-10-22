@@ -164,6 +164,8 @@ export class MockInterviews {
     });
     const targetId = this.#domain.activeTargetId();
     const { activity, started } = this.#domain.startActivity("mock_interview", { targetId });
+    // Auto-tidy as for a new Practice set (ADR-0004).
+    this.#practice.tidyResults();
     const now = this.#now();
     const id = crypto.randomUUID();
     this.#db
