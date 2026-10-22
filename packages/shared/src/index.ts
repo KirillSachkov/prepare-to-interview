@@ -25,6 +25,8 @@ export const apiPaths = {
   practiceRequest: "/api/practice/request",
   /** GET a {@link ProgressResponse}: Mastery and Due per Topic of the active Preparation target. */
   progress: "/api/progress",
+  /** POST a {@link MockRequest}: starts a Mock interview and asks the Interviewer in the Chat. */
+  mockRequest: "/api/mock/request",
   mcp: "/mcp",
 } as const;
 
@@ -62,6 +64,14 @@ export const cardPaths = {
   discuss: (cardId: string) => `/api/cards/${cardId}/discuss`,
 } as const;
 
+/** REST paths of a Mock interview. */
+export const mockPaths = {
+  /** POST: gives the Card's saved draft as the answer (empty: «Не знаю»); the Interviewer reacts in the Chat. */
+  answer: (cardId: string) => `/api/cards/${cardId}/answer`,
+  /** POST: ends the Mock interview early; the Grader then grades every answer. */
+  finish: (setId: string) => `/api/mock-interviews/${setId}/finish`,
+} as const;
+
 export const practiceSetPaths = {
   /** POST: submits the whole Practice set. */
   submit: (setId: string) => `/api/practice-sets/${setId}/submit`,
@@ -73,7 +83,8 @@ export const topicPriorities = ["high", "medium", "low"] as const;
 export type TopicPriority = (typeof topicPriorities)[number];
 export const questionTypes = ["open", "single_choice", "multiple_choice"] as const;
 export type QuestionType = (typeof questionTypes)[number];
-export const cardStatuses = ["open", "grading", "graded", "skipped", "failed"] as const;
+/** `answered`: a Mock interview Card whose answer waits for the Grader until the mock ends. */
+export const cardStatuses = ["open", "answered", "grading", "graded", "skipped", "failed"] as const;
 export type CardStatus = (typeof cardStatuses)[number];
 export const practiceSetKinds = ["practice", "quiz"] as const;
 export type PracticeSetKind = (typeof practiceSetKinds)[number];
@@ -133,14 +144,32 @@ export interface CardView {
   referenceAnswer: string | null;
   /** Why grading failed, in Russian; the Candidate can check again. */
   error: string | null;
+  /** In a Mock interview, the answered Card this follow-up probes and the quoted piece of that answer. */
+  followUp: { cardId: string; quote: string } | null;
+}
+
+/** Practice sets are `training`; a Mock interview is a set in `mock` mode. */
+export type PracticeMode = "training" | "mock";
+
+/** What a Mock interview shows in its header besides its Cards. */
+export interface MockInterviewView {
+  /** Milliseconds since the epoch. */
+  startedAt: number;
+  /** When it ended (early, on time, or by the Interviewer); `null` while it runs. */
+  finishedAt: number | null;
+  /** The chosen focus, in Russian, such as «слабые места». */
+  focus: string;
 }
 
 export interface PracticeSetView {
   title: string;
+  mode: PracticeMode;
+  /** Only for a Mock interview; its `deadline` is when it ends. */
+  mock: MockInterviewView | null;
   kind: PracticeSetKind;
   reveal: RevealMode;
   status: PracticeSetStatus;
-  /** Milliseconds since the epoch when a timed Quiz submits itself. */
+  /** Milliseconds since the epoch when a timed Quiz submits itself or a Mock interview ends. */
   deadline: number | null;
   cards: CardView[];
   /** Totals once graded: points out of the maximum of the graded Cards, and Skipped Cards. */
@@ -323,6 +352,15 @@ export interface PracticeRequest {
   kind: "today" | "topic" | "quiz";
   /** Topic name for `topic`. */
   topic?: string;
+}
+
+/** Most and fewest minutes a Mock interview may last. */
+export const mockDurationLimits = { min: 5, max: 90 } as const;
+
+export interface MockRequest {
+  durationMinutes: number;
+  /** The whole active Preparation target, its weak spots, or chosen Topics by name. */
+  focus: { kind: "target" } | { kind: "weak_spots" } | { kind: "topics"; topics: string[] };
 }
 
 export interface RevealRequest {

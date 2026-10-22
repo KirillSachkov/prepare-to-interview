@@ -207,7 +207,16 @@ export type AttemptMode = (typeof attemptModes)[number];
 export const practiceSetStatuses = ["active", "grading", "graded", "abandoned"] as const;
 export type PracticeSetStatus = (typeof practiceSetStatuses)[number];
 
-/** A group of Cards the Candidate answers in any order and submits together. */
+/** The focus the Candidate chose for a Mock interview: Topics by name, weak spots, or the whole target. */
+export interface MockFocus {
+  topics: string[];
+  weakSpots: boolean;
+}
+
+/**
+ * A group of Cards the Candidate answers in any order and submits together. A Mock interview is a
+ * set with mode `mock`: the Interviewer adds its Cards one at a time and the app grades them at the end.
+ */
 export const practiceSets = sqliteTable("practice_sets", {
   id: text("id").primaryKey(),
   activityId: text("activity_id")
@@ -220,8 +229,10 @@ export const practiceSets = sqliteTable("practice_sets", {
   status: text("status", { enum: practiceSetStatuses }).notNull(),
   /** Mode of the set's Attempts: `training` for Practice sets and Quizzes, `mock` for a Mock interview. */
   mode: text("mode", { enum: attemptModes }).notNull().default("training"),
-  /** A timed Quiz submits itself at this instant. */
+  /** A timed Quiz submits itself at this instant; a Mock interview ends at it. */
   deadline: integer("deadline", { mode: "timestamp_ms" }),
+  /** What a Mock interview focuses on; null for Practice sets. */
+  focus: text("focus", { mode: "json" }).$type<MockFocus>(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   submittedAt: integer("submitted_at", { mode: "timestamp_ms" }),
   gradedAt: integer("graded_at", { mode: "timestamp_ms" }),
@@ -246,6 +257,10 @@ export const cards = sqliteTable("cards", {
   hintsUsed: integer("hints_used").notNull().default(0),
   /** The answer is a retry after feedback: recorded, but it moves neither Leitner boxes nor Mastery. */
   retry: integer("retry", { mode: "boolean" }).notNull().default(false),
+  /** In a Mock interview, the answered Card this follow-up probes. */
+  followUpOf: text("follow_up_of"),
+  /** The piece of the parent Card's answer the follow-up quotes. */
+  followUpQuote: text("follow_up_quote"),
   /** Latest Attempt on this Card. */
   attemptId: text("attempt_id"),
   /** Why grading failed, in the Candidate's language. */

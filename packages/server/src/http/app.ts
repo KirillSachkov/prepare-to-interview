@@ -21,11 +21,13 @@ import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import { revealModes } from "../db/schema.ts";
 import { DomainError, type Domain } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
+import type { MockRunner } from "../interviewer/mock-runner.ts";
 import type { PracticeRunner } from "../interviewer/practice-runner.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
 import { hostGuard, tokenGuard } from "./access.ts";
+import { mockRoutes } from "./mock-routes.ts";
 
 export interface AppDeps {
   token: string;
@@ -35,6 +37,7 @@ export interface AppDeps {
   domain: Domain;
   practice: Practice;
   runner: PracticeRunner;
+  mock: MockRunner;
   settings: Settings;
   detectAgents: AgentDetector;
   events: EventBus;
@@ -118,6 +121,7 @@ export function createApp(deps: AppDeps): Hono {
     const body = practiceRequest.safeParse(await readJson(c.req.raw));
     if (!body.success) return c.json({ error: "Не указано, какую подборку собрать." }, 400);
     if (deps.chat.busy) return c.json({ error: chatBusyMessage }, 409);
+    if (deps.mock.running()) return c.json({ error: "сначала завершите мок-интервью." }, 409);
     deps.domain.startActivity("practice_set", { targetId: deps.domain.activeTargetId() });
     return sendToChat(() => deps.chat.send(practiceRequestMessage(body.data)));
   });
@@ -150,6 +154,8 @@ export function createApp(deps: AppDeps): Hono {
     if (!body.success) return c.json({ error: "Не указан режим оценок." }, 400);
     return domainResult(() => c.json(deps.practice.setReveal(idParam(c), body.data.reveal)));
   });
+
+  mockRoutes(app, deps);
 
   app.get(apiPaths.agents, (c) =>
     c.json({ agents: deps.detectAgents(), settings: deps.settings.agentSettings() } satisfies AgentsResponse),
@@ -224,10 +230,10 @@ export const discussMessage = "Обсудим эту карточку.";
 /** What the Candidate says in the Chat when they press «Новая цель». */
 export const newTargetMessage = "Хочу добавить новую цель подготовки.";
 
-const chatBusyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
+export const chatBusyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
 
 /** Answers 202 with the Candidate's Chat message, or 409 while the Interviewer is replying. */
-function sendToChat(send: () => unknown): Response {
+export function sendToChat(send: () => unknown): Response {
   try {
     return Response.json({ message: send() }, { status: 202 });
   } catch (error) {
@@ -237,7 +243,7 @@ function sendToChat(send: () => unknown): Response {
 }
 
 /** Answers a refused domain change with its Russian text: 404 for an unknown record, 400 otherwise. */
-function domainResult(respond: () => Response): Response {
+export function domainResult(respond: () => Response): Response {
   try {
     return respond();
   } catch (error) {
@@ -248,11 +254,11 @@ function domainResult(respond: () => Response): Response {
 }
 
 /** The `:id` of a Card or Practice set route. */
-function idParam(c: Context): string {
+export function idParam(c: Context): string {
   return c.req.param("id") ?? "";
 }
 
-async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Request): Promise<unknown> {
   try {
     return await request.json();
   } catch {

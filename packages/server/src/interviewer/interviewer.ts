@@ -4,6 +4,7 @@ import { appContextUri, skillUri } from "@prepare-to-interview/shared";
 import type { AllowedBuiltin, McpServerConfig, SessionConfig, TurnInput } from "../agent/driver.ts";
 import type { ActivityKind } from "../db/schema.ts";
 import type { Domain } from "../domain/domain.ts";
+import type { MockAnswer, MockInterviews } from "../domain/mock.ts";
 import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
 
 export const defaultContentDir = fileURLToPath(new URL("../../../../interviewer", import.meta.url));
@@ -21,6 +22,15 @@ export interface HiddenState {
   has_profile: boolean;
   /** The Candidate's unsubmitted Practice set on the Canvas. */
   unfinished_practice_set: { id: string; title: string; answered: number; cards: number } | null;
+  /** The running Mock interview; the app ends it at its deadline. */
+  mock_interview: {
+    id: string;
+    focus: { topics: string[]; weak_spots: boolean };
+    minutes_left: number;
+    questions_asked: number;
+    /** The Card waiting for the Candidate's answer; place no other Card meanwhile. */
+    awaiting_answer_card_id: string | null;
+  } | null;
 }
 
 export interface InterviewerOptions {
@@ -28,17 +38,22 @@ export interface InterviewerOptions {
   contentDir?: string;
   domain: Domain;
   practice: Practice;
+  mock: MockInterviews;
   /** The app's MCP servers; read lazily because the URL is known only after the server listens. */
   mcpServers: () => McpServerConfig[];
   now?: () => Date;
 }
 
 /** Activities that have a skill file in the product directory. */
-const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set"];
+const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set", "mock_interview"];
+
+/** Skill directories named apart from their Activity. */
+const skillDirs: Partial<Record<ActivityKind, string>> = { mock_interview: "interview" };
 
 /** Shared references appended to an Activity's skill. */
 const skillReferences: Partial<Record<ActivityKind, string[]>> = {
   practice_set: ["references/rubric.md", "references/modes.md"],
+  mock_interview: ["references/modes.md"],
 };
 
 /**
@@ -51,6 +66,7 @@ export class Interviewer {
   readonly #skills: ReadonlyMap<ActivityKind, string>;
   readonly #domain: Domain;
   readonly #practice: Practice;
+  readonly #mock: MockInterviews;
   readonly #mcpServers: () => McpServerConfig[];
   readonly #now: () => Date;
   /** `<agent session>:<activity>` pairs whose skill the agent already has. */
@@ -64,6 +80,7 @@ export class Interviewer {
     this.#skills = new Map(skilledActivities.map((kind) => [kind, loadSkill(dir, kind)]));
     this.#domain = options.domain;
     this.#practice = options.practice;
+    this.#mock = options.mock;
     this.#mcpServers = options.mcpServers;
     this.#now = options.now ?? (() => new Date());
   }
@@ -71,7 +88,8 @@ export class Interviewer {
   /**
    * What the agent receives for one Candidate message in the given Agent session: the hidden
    * state; until the session has the running Activity's skill, that skill; results of Practice
-   * sets graded since the last turn; and the Card the message is about. A Candidate without any
+   * sets graded since the last turn; and the Card the message is about, or the Candidate's answer
+   * when it is a Card of the running Mock interview. A Candidate without any
    * Preparation target starts in onboarding unless they skipped it before. Call `sent` once the
    * agent took the turn, so a failed turn sends the skill and the results again.
    */
@@ -90,7 +108,12 @@ export class Interviewer {
     const results = this.#practice.unreported();
     for (const result of results) context.push({ uri: appContextUri(`practice-set/${result.setId}`), text: describeResult(result) });
     if (options.cardId) {
-      context.push({ uri: appContextUri(`card/${options.cardId}`), text: describeCard(this.#practice.cardContext(options.cardId)) });
+      const answer = this.#mock.answerContext(options.cardId);
+      context.push(
+        answer
+          ? { uri: appContextUri(`mock-answer/${options.cardId}`), text: describeMockAnswer(answer) }
+          : { uri: appContextUri(`card/${options.cardId}`), text: describeCard(this.#practice.cardContext(options.cardId)) },
+      );
     }
     return {
       input: { text, hiddenState, ...(context.length && { context }) },
@@ -136,13 +159,14 @@ export class Interviewer {
       },
       has_profile: profile !== null,
       unfinished_practice_set: unfinished(this.#practice.unfinished()),
+      mock_interview: runningMock(this.#mock.running()),
     };
   }
 }
 
 /** A skill as the agent reads it: the skill file and its references, wrapped so the Chat can strip its echoes. */
 function loadSkill(dir: string, kind: ActivityKind): string {
-  const parts = [`${dir}/skills/${kind}/SKILL.md`, ...(skillReferences[kind] ?? []).map((ref) => `${dir}/${ref}`)];
+  const parts = [`${dir}/skills/${skillDirs[kind] ?? kind}/SKILL.md`, ...(skillReferences[kind] ?? []).map((ref) => `${dir}/${ref}`)];
   const body = parts.map((file) => fs.readFileSync(file, "utf8").trim()).join("\n\n");
   return `<activity_skill name="${kind}">\n${body}\n</activity_skill>`;
 }
@@ -151,12 +175,46 @@ function unfinished(set: ReturnType<Practice["unfinished"]>): HiddenState["unfin
   return set && { id: set.setId, title: set.title, answered: set.answered, cards: set.cards };
 }
 
-/** The grading result of a Practice set, as hidden context for the Interviewer's next turn. */
+function runningMock(mock: ReturnType<MockInterviews["running"]>): HiddenState["mock_interview"] {
+  return (
+    mock && {
+      id: mock.setId,
+      focus: { topics: mock.focus.topics, weak_spots: mock.focus.weakSpots },
+      minutes_left: mock.minutesLeft,
+      questions_asked: mock.questionsAsked,
+      awaiting_answer_card_id: mock.awaitingCardId,
+    }
+  );
+}
+
+/** The Candidate's answer in a running Mock interview: the Interviewer reacts and asks the next question. */
+function describeMockAnswer(answer: MockAnswer): string {
+  const blank = answer.type === "open" ? !answer.answer.trim() : !answer.choices.length;
+  return appContext("mock_answer", {
+    mock_interview_id: answer.setId,
+    card_id: answer.cardId,
+    question_number: answer.questionNumber,
+    topic: answer.topic,
+    type: answer.type,
+    question: answer.question,
+    ...(answer.options && { options: answer.options, chosen: answer.choices }),
+    answer: answer.type === "open" ? answer.answer : undefined,
+    said_dont_know: blank,
+    follow_up_of: answer.followUpOf,
+    minutes_left: answer.minutesLeft,
+    note: blank
+      ? "The Candidate said they do not know. React neutrally in one short sentence and move on to another Question with next_mock_question."
+      : "React neutrally in one short sentence: no grade, no hint, no teaching. Then call next_mock_question: a follow-up with follow_up_of set to this card_id and a quote copied verbatim from the answer, or a new Question. End with finish_mock_interview when the focus is covered or time is nearly up.",
+  });
+}
+
+/** The grading result of a Practice set or a Mock interview, as hidden context for the Interviewer's next turn. */
 function describeResult(result: SetResult): string {
   return appContext("practice_result", {
     practice_set_id: result.setId,
     title: result.title,
     kind: result.kind,
+    mode: result.mode,
     score: result.score,
     max: result.max,
     skipped: result.skipped,
@@ -169,7 +227,10 @@ function describeResult(result: SetResult): string {
       hints_used: c.hintsUsed,
       gap: c.gap,
     })),
-    note: "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask; do not regrade.",
+    note:
+      result.mode === "mock"
+        ? "The Mock interview is over and graded: the Candidate sees grades and feedback on the Cards and a summary in the Chat. When they reply, give the review: strengths first, then the single most important gap, one priority, and the next step. Do not regrade."
+        : "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask; do not regrade.",
   });
 }
 
