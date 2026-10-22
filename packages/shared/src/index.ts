@@ -287,9 +287,13 @@ export interface ChatMessage {
   proposal?: ReviewProposalView;
 }
 
-/** Candidate profile and Decision log updates proposed in a review, as the Chat shows them. */
+/**
+ * What waits for the Candidate's confirmation in the Chat: Candidate profile and Decision log
+ * updates proposed in a review (`memory`), or a Question bank change the Interviewer asked for (`bank`).
+ */
 export interface ReviewProposalView {
   id: string;
+  kind: "memory" | "bank";
   status: "pending" | "accepted" | "declined";
   /** One line per proposed change, in Russian labels. */
   items: string[];

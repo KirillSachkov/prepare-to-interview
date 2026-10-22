@@ -45,6 +45,8 @@ runs in the background in a separate session; `research` in the hidden state say
 runs and how many Proposed items wait. Its result arrives later as an `app://context/research/…`
 block. Proposed items enter the bank only after the Candidate approves them in the Skill map
 (toolbar B); call `review_proposed` only when the Candidate tells you to approve or reject them.
+The app then shows the Candidate a confirmation in the Chat and changes the bank only once they
+confirm; the same holds for `auto_approve` in `start_research`. Tell them to confirm there.
 Use `search` to recall Questions, notes, and what the Candidate said earlier.
 
 ## Language

@@ -449,8 +449,24 @@ export interface ProposedDecision {
 }
 
 /**
+ * A Question bank change the Chat's Interviewer asked for, which waits for the Candidate's
+ * confirmation in the Chat: approving or rejecting Proposed items, or approving a Research batch
+ * without review. The Chat reads web pages, so its word alone never changes the bank.
+ */
+export type BankAction =
+  | {
+      kind: "review";
+      action: "approve" | "reject";
+      batchId?: string;
+      all?: boolean;
+      questions?: string[];
+      topics?: string[];
+    }
+  | { kind: "auto_approve"; batchId: string };
+
+/**
  * Candidate profile and Decision log updates the Interviewer proposed at the end of an Agent
- * session; the app saves them only once the Candidate confirms in the Chat.
+ * session, or a {@link BankAction}; the app applies them only once the Candidate confirms in the Chat.
  */
 export const reviewProposals = sqliteTable("review_proposals", {
   id: text("id").primaryKey(),
@@ -458,6 +474,7 @@ export const reviewProposals = sqliteTable("review_proposals", {
   targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
   profile: text("profile", { mode: "json" }).$type<ProposedProfile>(),
   decisions: text("decisions", { mode: "json" }).$type<ProposedDecision[]>().notNull(),
+  bankAction: text("bank_action", { mode: "json" }).$type<BankAction>(),
   status: text("status", { enum: reviewProposalStatuses }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   settledAt: integer("settled_at", { mode: "timestamp_ms" }),

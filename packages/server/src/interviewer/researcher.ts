@@ -59,6 +59,8 @@ type SessionEnd = "completed" | "failed" | "app_stopped" | "timeout" | Exclude<S
 
 interface Run {
   activityId: string;
+  /** Approve the batch's output when it ends: the Candidate asked for it. */
+  autoApprove: boolean;
   session?: AgentSession;
   done: Promise<void>;
 }
@@ -121,12 +123,24 @@ export class Researcher {
       archived.push({ label: "candidate_material", id: source.id, text: request.materials });
     }
     const brief = this.#brief(request, archived);
-    const run: Run = { activityId: activity.id, done: Promise.resolve() };
+    const run: Run = { activityId: activity.id, autoApprove: request.autoApprove === true, done: Promise.resolve() };
     this.#running = run;
-    run.done = this.#run(run, brief, request.autoApprove === true).finally(() => {
+    run.done = this.#run(run, brief).finally(() => {
       if (this.#running === run) this.#running = undefined;
     });
     return { activity, sourceIds: archived.map((a) => a.id) };
+  }
+
+  /**
+   * The Candidate confirmed approving a batch without review: a running batch approves its output
+   * when it ends, a finished one now.
+   */
+  approveBatch(batchId: string): void {
+    if (this.#running?.activityId === batchId) {
+      this.#running.autoApprove = true;
+      return;
+    }
+    this.#o.bank.review({ action: "approve", batchId });
   }
 
   /** Resolves when no batch is running. */
@@ -167,10 +181,10 @@ export class Researcher {
     clearTimeout(timer);
   }
 
-  async #run(run: Run, brief: string, autoApprove: boolean): Promise<void> {
+  async #run(run: Run, brief: string): Promise<void> {
     const { agent, models } = this.#o.settings.agentSettings();
     if (!agent) {
-      this.#end(run.activityId, "abandoned", "No agent is chosen.", autoApprove);
+      this.#end(run.activityId, "abandoned", "No agent is chosen.", run.autoApprove);
       this.#tell("Исследование не началось: выберите агента в настройках чата.");
       return;
     }
@@ -207,7 +221,7 @@ export class Researcher {
       const stopped = timeout.hit || result.stopReason !== "end_turn";
       if (timeout.hit) ended = "timeout";
       else if (result.stopReason !== "end_turn") ended = result.stopReason;
-      this.#end(run.activityId, "completed", reply.trim() || "Research finished.", autoApprove, stopped);
+      this.#end(run.activityId, "completed", reply.trim() || "Research finished.", run.autoApprove, stopped);
     } catch (error) {
       ended = "failed";
       if (this.#stopping()) return;

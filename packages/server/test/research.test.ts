@@ -7,6 +7,7 @@ import {
   apiPaths,
   bankPaths,
   cardPaths,
+  proposalPaths,
   practiceSetPaths,
   type BankResponse,
   type ChatSnapshot,
@@ -443,6 +444,44 @@ describe("Research Activity", () => {
     // A batch that finds nothing says so.
     await h.call("start_research", {});
     await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).messages.at(-1)?.text).toBe("Исследование завершено: нового для банка не нашлось.");
+  });
+
+  it("asks the Candidate to confirm in the Chat before the Chat's Interviewer approves anything", async () => {
+    const proposeKafka = (brief: string): FakeTurn => [
+      tool("propose_questions", {
+        questions: [{ topic: "Kafka", prompt: "Что такое партиция в Kafka?", reference_answer: "Упорядоченный лог внутри топика.", source_ids: [vacancySource(brief)] }],
+      }),
+      reply("Готово."),
+    ];
+    const h = await withTarget([
+      [tool("start_research", { auto_approve: true }), reply("Запустил исследование.")],
+      [tool("review_proposed", { action: "approve", all: true }), reply("Одобряю.")],
+    ]);
+    h.researchTurns.push(proposeKafka);
+    const chat = () => get<ChatSnapshot>(h.server, apiPaths.chat);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Найди и сразу добавь всё" } });
+    await expect.poll(async () => (await chat()).messages.some((m) => m.text.startsWith("Исследование завершено"))).toBe(true);
+    // Nothing entered the bank: the auto-approval waits for the Candidate in the Chat.
+    expect((await proposed(h)).count).toBe(2);
+    let confirmations = (await chat()).messages.flatMap((m) => (m.proposal ? [m.proposal] : []));
+    expect(confirmations).toMatchObject([{ kind: "bank", status: "pending", items: [expect.stringContaining("без проверки")] }]);
+    expect((await api(h.server, proposalPaths.accept(confirmations[0]!.id))).status).toBe(200);
+    expect((await proposed(h)).count).toBe(0);
+
+    // review_proposed from the Chat waits for confirmation too; declining changes nothing.
+    h.researchTurns.push(proposeKafka);
+    await h.call("start_research", { focus: "Kafka ещё раз" });
+    await expect.poll(async () => (await proposed(h)).count).toBe(0);
+    expect((await h.call("propose_questions", { questions: [{ topic: "Kafka", prompt: "Что такое consumer group?", reference_answer: "Группа читателей, делящих партиции.", source_ids: [await archive(h, "Kafka consumer groups.")] }] })).isError).toBe(false);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Одобри всё" } });
+    await expect.poll(async () => (await chat()).busy).toBe(false);
+    confirmations = (await chat()).messages.flatMap((m) => (m.proposal ? [m.proposal] : []));
+    expect(confirmations).toHaveLength(2);
+    expect((await proposed(h)).count).toBe(1);
+    expect((await api(h.server, proposalPaths.decline(confirmations[1]!.id))).status).toBe(200);
+    expect((await proposed(h)).count).toBe(1);
+    // The Candidate's own scripts with the app token, like the UI, act directly.
+    expect((await h.call("review_proposed", { action: "approve", all: true })).data).toMatchObject({ approved: 1 });
   });
 
   it("tells the Candidate when Research cannot start without an agent session", async () => {

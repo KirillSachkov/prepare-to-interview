@@ -12,6 +12,7 @@ import {
   chatMessages,
   reviewProposals,
   type ActivityKind,
+  type BankAction,
   type ProposedDecision,
   type ProposedProfile,
 } from "../db/schema.ts";
@@ -50,6 +51,8 @@ export interface ContinuityOptions {
   chat: () => Chat;
   /** Whether the Candidate has an unsubmitted Practice set on the Canvas. */
   practiceInProgress: () => boolean;
+  /** Applies a Question bank change the Candidate confirmed; read lazily, like the Chat. */
+  applyBankAction: () => (action: BankAction) => void;
   now: () => Date;
 }
 
@@ -60,6 +63,7 @@ export class Continuity implements SessionPolicy {
   readonly #chat: () => Chat;
   readonly #now: () => Date;
   readonly #practiceInProgress: () => boolean;
+  readonly #applyBankAction: () => (action: BankAction) => void;
   readonly #holds: (() => boolean)[] = [];
   /** The boundary whose review waits for a hold to settle. */
   #pendingReview: Activity | undefined;
@@ -71,6 +75,7 @@ export class Continuity implements SessionPolicy {
     this.#chat = options.chat;
     this.#now = options.now;
     this.#practiceInProgress = options.practiceInProgress;
+    this.#applyBankAction = options.applyBankAction;
     this.#domain.onActivityCompleted((activity) => this.#boundary(activity));
     this.#recoverInterrupted();
   }
@@ -153,14 +158,34 @@ export class Continuity implements SessionPolicy {
     return { sessionId: session.id, proposalId };
   }
 
-  proposal(proposalId: string): ReviewProposalView | undefined {
-    const row = this.#db.select().from(reviewProposals).where(eq(reviewProposals.id, proposalId)).get();
-    return row && { id: row.id, status: row.status, items: describeProposal(row.profile, row.decisions) };
+  /**
+   * The Chat's Interviewer asked for a Question bank change: it waits in the Chat for the
+   * Candidate's confirmation, since the Chat reads web pages and its word alone is not the Candidate's.
+   */
+  confirmBankAction(action: BankAction): string {
+    const proposalId = crypto.randomUUID();
+    this.#db
+      .insert(reviewProposals)
+      .values({ id: proposalId, agentSessionId: this.#chat().turnSessionId ?? null, targetId: this.#domain.activeTargetId(), profile: null, decisions: [], bankAction: action, status: "pending", createdAt: this.#now() })
+      .run();
+    this.#chat().post("Подтвердите изменение банка вопросов:", { proposalId });
+    return proposalId;
   }
 
-  /** The Candidate confirmed: the profile and Decision log updates are saved. */
+  proposal(proposalId: string): ReviewProposalView | undefined {
+    const row = this.#db.select().from(reviewProposals).where(eq(reviewProposals.id, proposalId)).get();
+    if (!row) return undefined;
+    if (row.bankAction) return { id: row.id, kind: "bank", status: row.status, items: [describeBankAction(row.bankAction)] };
+    return { id: row.id, kind: "memory", status: row.status, items: describeProposal(row.profile, row.decisions) };
+  }
+
+  /** The Candidate confirmed: the profile and Decision log updates are saved, or the bank change applied. */
   acceptProposal(proposalId: string): ReviewProposalView {
     const row = this.#pendingProposal(proposalId);
+    if (row.bankAction) {
+      this.#applyBankAction()(row.bankAction);
+      return this.#settle(proposalId, "accepted");
+    }
     const p = row.profile;
     if (p) {
       this.#domain.saveProfile({
@@ -271,6 +296,16 @@ function reviewRequest(activity: Activity): string {
     note: "The Activity just ended and the app started the review Activity. Give the review now, following the review skill. The Candidate did not write this message; do not answer it as theirs.",
   };
   return appContext("activity_ended", data);
+}
+
+/** The bank change in Russian, as the Candidate confirms it. */
+function describeBankAction(action: BankAction): string {
+  if (action.kind === "auto_approve") return "Добавить в банк без проверки всё, что предложит запущенное исследование.";
+  const verb = action.action === "approve" ? "Одобрить" : "Отклонить";
+  if (action.all) return `${verb} все предложенные темы и вопросы.`;
+  if (action.batchId) return `${verb} всё, что предложило исследование.`;
+  const parts = [action.questions?.length && `вопросов — ${action.questions.length}`, action.topics?.length && `тем — ${action.topics.length}`].filter(Boolean).join(", ");
+  return `${verb} выбранные предложения (${parts}).`;
 }
 
 /** One Russian line per proposed change, as the Candidate confirms them. */

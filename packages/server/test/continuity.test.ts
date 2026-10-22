@@ -213,6 +213,7 @@ describe("Agent session rotation", () => {
     const proposal = chat.messages.find((m) => m.proposal)!.proposal!;
     expect(proposal).toEqual({
       id: proposal.id,
+      kind: "memory",
       status: "pending",
       items: ["Слабые места: Метрики ретривера", "Решение: Focus on retriever evaluation this week (Weakest area)"],
     });

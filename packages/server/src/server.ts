@@ -17,6 +17,7 @@ import { openDataDir } from "./data-dir.ts";
 import { openDatabase } from "./db/database.ts";
 import { Domain } from "./domain/domain.ts";
 import { Bank } from "./domain/bank.ts";
+import type { BankAction } from "./db/schema.ts";
 import { MockInterviews } from "./domain/mock.ts";
 import { Practice } from "./domain/practice.ts";
 import { EventBus } from "./events.ts";
@@ -89,7 +90,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const researchMcpServers: McpServerConfig[] = [];
   // eslint-disable-next-line prefer-const -- assigned below: the Chat is built with the policy that reads it.
   let chat: Chat;
-  const continuity = new Continuity({ db, domain, settings, chat: () => chat, practiceInProgress: () => practice.unfinished() !== null, now });
+  const continuity = new Continuity({
+    db,
+    domain,
+    settings,
+    chat: () => chat,
+    practiceInProgress: () => practice.unfinished() !== null,
+    applyBankAction: () => (action) => {
+      if (action.kind === "auto_approve") late.researcher?.approveBatch(action.batchId);
+      else bank.review({ action: action.action, ...(action.batchId && { batchId: action.batchId }), ...(action.all && { all: true }), ...(action.questions && { questions: action.questions }), ...(action.topics && { topics: action.topics }) });
+    },
+    now,
+  });
   const interviewer = new Interviewer({
     contentDir,
     domain,
@@ -137,7 +149,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   continuity.holdReview(() => runner.grading);
   runner.onSettled(() => continuity.releaseReview());
 
-  const researchDeps = { domain, bank, archive, search, researcher: research };
+  const researchDeps = { domain, bank, archive, search, researcher: research, confirm: (action: BankAction) => continuity.confirmBankAction(action) };
   const app = createApp({
     token: dataDir.token,
     allowedHosts: () => allowedHosts,
