@@ -42,6 +42,8 @@ interface Harness {
   dataDir: string;
   driver: () => FakeDriver;
   graderAnswers: string[];
+  /** Inputs of the review turns the app started after a Mock interview ended and was graded. */
+  reviews: TurnInput[];
   /** While set, Grader turns wait for it before replying. */
   gate: { wait?: Promise<unknown> };
   /** Moves the pinned clock forward. */
@@ -51,9 +53,15 @@ interface Harness {
 /** Grader sessions give 2 of 3 and quote the answer's first sentence. */
 async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), clock = { now: start22 }): Promise<Harness> {
   const graderAnswers: string[] = [];
+  const reviews: TurnInput[] = [];
   const gate: Harness["gate"] = {};
   let driver: FakeDriver | undefined;
   const respond = (config: SessionConfig, input: TurnInput): FakeTurn | undefined => {
+    // The review the app starts at the boundary; continuity.test.ts covers it.
+    if (input.text.includes('<app_context name="activity_ended">')) {
+      reviews.push(input);
+      return [];
+    }
     if (!isGrader(config)) return undefined;
     const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(input.text)?.[1] ?? "";
     graderAnswers.push(answer);
@@ -73,6 +81,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs(), clock = { no
     dataDir: dirs.dataDir,
     driver: () => driver!,
     graderAnswers,
+    reviews,
     gate,
     advance: (ms) => (clock.now = new Date(clock.now.getTime() + ms)),
   };
@@ -404,11 +413,14 @@ describe("Ending a Mock interview", () => {
     expect((await h.call("get_profile")).data.activity).toBeNull();
     expect((await api(h.server, mockPaths.finish(set.id))).status).toBe(404);
 
-    // The Interviewer receives the result once, as a mock, for the review.
+    // The review the app started once grading settled receives the result once, as a mock.
+    expect(h.reviews).toHaveLength(1);
+    expect(h.reviews[0]?.text).toContain('"ended_activity": "mock_interview"');
+    const result = h.reviews[0]?.context?.find((c) => c.uri === `app://context/practice-set/${set.id}`)?.text ?? "";
+    expect(result).toContain('"mode": "mock"');
     await api(h.server, apiPaths.chatMessages, { body: { text: "Как я выступил?" } });
     await settledChat(h.server);
-    const result = h.driver().prompts.at(-1)?.context?.find((c) => c.uri === `app://context/practice-set/${set.id}`)?.text ?? "";
-    expect(result).toContain('"mode": "mock"');
+    expect(h.driver().prompts.at(-1)?.context?.some((c) => c.uri.includes("practice-set/"))).toBe(false);
     expect((h.driver().prompts.at(-1)?.hiddenState as HiddenState).mock_interview).toBeNull();
     // Graded, its Cards can be discussed.
     expect((await api(h.server, cardPaths.discuss(set.data.cards[0]!.id))).status).toBe(202);
@@ -444,6 +456,33 @@ describe("Ending a Mock interview", () => {
     expect(graded.data.cards[0]).toMatchObject({ status: "graded", attempt: { score: 2 } });
     const texts = (await get<ChatSnapshot>(h.server, apiPaths.chat)).messages.map((m) => m.text);
     expect(texts.some((t) => t.startsWith("Мок-интервью завершено"))).toBe(false);
+  });
+
+  it("reviews a mock the Interviewer ended mid-turn only after grading, in the same Agent session", async () => {
+    const h = await setUp([
+      [tool("next_mock_question", { question: firstQuestion })],
+      [tool("finish_mock_interview", {}), reply("На этом всё.")],
+      [reply("Оценки скоро будут.")],
+    ]);
+    const set = await startMock(h);
+    let release: () => void = () => undefined;
+    h.gate.wait = new Promise<void>((resolve) => (release = resolve));
+    await draftAndSend(h, set.data.cards[0]!.id);
+    await settledChat(h.server);
+    const chatSessions = () => h.driver().sessions.filter((s) => !isGrader(s.config));
+    // The review waits for the Grader, and the Agent session does not rotate before it.
+    expect(h.reviews).toEqual([]);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Ну как?" } });
+    await settledChat(h.server);
+    expect(chatSessions()).toHaveLength(1);
+    expect((h.driver().prompts.at(-1)?.context ?? []).some((c) => c.uri === "app://context/briefing")).toBe(false);
+
+    release();
+    await gradedMock(h.server);
+    await expect.poll(() => h.reviews.length).toBe(1);
+    expect(h.reviews[0]?.context?.map((c) => c.uri)).toContain(`app://context/practice-set/${set.id}`);
+    await settledChat(h.server);
+    expect(chatSessions()).toHaveLength(1);
   });
 
   it("enforces the deadline on the server: no Cards or drafts after it, and the mock ends with its answers graded", async () => {

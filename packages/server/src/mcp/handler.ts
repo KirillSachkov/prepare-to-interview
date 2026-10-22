@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { DomainError } from "../domain/domain.ts";
-import type { ToolDefinition } from "./tool.ts";
+import { callerHeader, type ToolContext, type ToolDefinition } from "./tool.ts";
 
 /** Server name agents see as the tool namespace (`mcp__interview__…`, `interview_…`). */
 export const mcpServerName = "interview";
@@ -26,8 +26,9 @@ export function createMcpHandler(tools: readonly ToolDefinition[], version: stri
   return async (request) => {
     const server = new McpServer({ name: mcpServerName, version }, { capabilities: { tools: {} } });
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: listing }));
+    const context: ToolContext = { fromChat: request.headers.get(callerHeader) === "chat" };
     server.server.setRequestHandler(CallToolRequestSchema, (call) =>
-      callTool(byName, call.params.name, call.params.arguments),
+      callTool(byName, call.params.name, call.params.arguments, context),
     );
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
@@ -57,7 +58,7 @@ function jsonSchema(schema: z.ZodObject, io: "input" | "output"): Tool["inputSch
   return { ...rest, type: "object" };
 }
 
-function callTool(byName: Map<string, ToolDefinition>, name: string, args: unknown): CallToolResult {
+function callTool(byName: Map<string, ToolDefinition>, name: string, args: unknown, context: ToolContext): CallToolResult {
   const tool = byName.get(name);
   if (!tool) {
     return toolError(`Unknown tool "${name}".`, `Call one of: ${[...byName.keys()].join(", ")}.`);
@@ -69,7 +70,7 @@ function callTool(byName: Map<string, ToolDefinition>, name: string, args: unkno
   }
   let output;
   try {
-    output = tool.output.parse(tool.run(parsed.data));
+    output = tool.output.parse(tool.run(parsed.data, context));
   } catch (error) {
     if (error instanceof DomainError) return toolError(error.message, error.fixHint);
     throw error;

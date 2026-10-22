@@ -19,6 +19,8 @@ export interface SkillMapViewProps {
   practise: (topic: string) => void;
   research: () => void;
   notify: (text: string) => void;
+  /** A history Card went into the Chat with «Обсудить»: show the Chat. */
+  discussed: () => void;
 }
 
 const legend = [0.2, 0.55, 0.85].map((m) => heat(m));
@@ -32,7 +34,7 @@ export function SkillMapView(props: SkillMapViewProps) {
     <div role="region" aria-label="Карта навыков" className="absolute inset-0 z-20 flex bg-[#f7f6f3] pt-24">
       <div className="min-w-0 flex-1 overflow-y-auto px-10 pt-2 pb-20">
         {openTopic ? (
-          <TopicDetail topicId={openTopic} back={() => setOpenTopic(null)} practise={props.practise} notify={props.notify} />
+          <TopicDetail topicId={openTopic} back={() => setOpenTopic(null)} practise={props.practise} notify={props.notify} discussed={props.discussed} />
         ) : (
           <>
             <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
@@ -84,7 +86,7 @@ export function SkillMapView(props: SkillMapViewProps) {
                 </div>
               </section>
             ))}
-            <SkillMapHistory />
+            <SkillMapHistory onDiscuss={props.discussed} />
           </>
         )}
       </div>

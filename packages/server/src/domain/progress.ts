@@ -12,7 +12,7 @@ import {
   topics,
   type QuestionType,
 } from "../db/schema.ts";
-import { dueOn, nextBox, questionMastery, readiness, topicMastery, type Outcome } from "./arithmetic.ts";
+import { dueOn, localDate, nextBox, questionMastery, readiness, topicMastery, type Outcome } from "./arithmetic.ts";
 
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -55,6 +55,25 @@ export class Progress {
     const current = tx.select().from(questionSchedule).where(eq(questionSchedule.questionId, questionId)).get();
     const box = nextBox(current?.box, outcome);
     const row = { questionId, box, dueOn: dueOn(this.#today(), box), updatedAt: at };
+    tx.insert(questionSchedule).values(row).onConflictDoUpdate({ target: questionSchedule.questionId, set: row }).run();
+  }
+
+  /**
+   * Rebuilds the Question's Leitner box from its Attempts that count, oldest first, such as after
+   * a corrected grade; the Due date counts from the latest of them.
+   */
+  reschedule(tx: Tx, questionId: string, at: Date): void {
+    const rows = tx
+      .select({ status: attempts.status, score: attempts.score, createdAt: attempts.createdAt })
+      .from(attempts)
+      .where(and(eq(attempts.questionId, questionId), eq(attempts.retry, false)))
+      .orderBy(asc(attempts.createdAt), asc(sql`rowid`))
+      .all();
+    const last = rows.at(-1);
+    if (!last) return;
+    let box: number | undefined;
+    for (const r of rows) box = nextBox(box, r.status === "skipped" ? { skipped: true } : { score: r.score ?? 0 });
+    const row = { questionId, box: box ?? 1, dueOn: dueOn(localDate(last.createdAt), box ?? 1), updatedAt: at };
     tx.insert(questionSchedule).values(row).onConflictDoUpdate({ target: questionSchedule.questionId, set: row }).run();
   }
 

@@ -49,6 +49,12 @@ export const agentSessions = sqliteTable("agent_sessions", {
   /** Latest context usage reported by the agent, for session rotation. */
   usedTokens: integer("used_tokens"),
   contextSize: integer("context_size"),
+  /** Why the app will end this Chat session before the next turn, such as an Activity boundary. */
+  rotateReason: text("rotate_reason"),
+  /** What happened in the session: the Interviewer's end-session summary, or one the app composed. */
+  summary: text("summary"),
+  /** When the agent received the Briefing that opens the session. */
+  briefedAt: integer("briefed_at", { mode: "timestamp_ms" }),
 });
 
 /** The single continuous Chat the Candidate sees, spanning many Agent sessions. */
@@ -61,6 +67,8 @@ export const chatMessages = sqliteTable("chat_messages", {
   agentSessionId: text("agent_session_id").references(() => agentSessions.id),
   /** The Card a message is about, such as the Candidate's «Обсудить» on a Card. */
   cardId: text("card_id"),
+  /** Candidate profile and Decision log updates the message asks the Candidate to confirm. */
+  proposalId: text("proposal_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   /** Insertion order; createdAt can tie within a millisecond. */
   seq: integer("seq").notNull(),
@@ -244,6 +252,8 @@ export const practiceSets = sqliteTable("practice_sets", {
   gradedAt: integer("graded_at", { mode: "timestamp_ms" }),
   /** When the Interviewer received the grading result in a turn's hidden context. */
   reportedAt: integer("reported_at", { mode: "timestamp_ms" }),
+  /** When the graded set left the Canvas for history (ADR-0004 auto-tidy). */
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
 });
 
 /** One Question placed on the Canvas inside a Practice set; holds the Candidate's draft. */
@@ -300,6 +310,10 @@ export const attempts = sqliteTable("attempts", {
   gradedBy: text("graded_by", { enum: ["app", "grader"] }),
   retry: integer("retry", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  /** The score before the Interviewer corrected a disputed grade; null when never corrected. */
+  correctedFrom: integer("corrected_from"),
+  correctionReason: text("correction_reason"),
+  correctedAt: integer("corrected_at", { mode: "timestamp_ms" }),
 });
 
 /** Leitner box and Due date per Question; a Question without a row was never practised. */
@@ -414,4 +428,37 @@ export const topicProposals = sqliteTable("topic_proposals", {
   status: text("status", { enum: proposalStatuses }).notNull(),
   activityId: text("activity_id").references(() => activities.id),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+// Continuity (ADR-0002): Candidate profile and Decision log updates the Interviewer proposes in a review.
+
+export const reviewProposalStatuses = ["pending", "accepted", "declined"] as const;
+export type ReviewProposalStatus = (typeof reviewProposalStatuses)[number];
+
+export interface ProposedProfile {
+  experience?: string;
+  stack?: string[];
+  strengths?: string[];
+  weakSpots?: string[];
+  preferences?: string;
+}
+
+export interface ProposedDecision {
+  decision: string;
+  reason: string | null;
+}
+
+/**
+ * Candidate profile and Decision log updates the Interviewer proposed at the end of an Agent
+ * session; the app saves them only once the Candidate confirms in the Chat.
+ */
+export const reviewProposals = sqliteTable("review_proposals", {
+  id: text("id").primaryKey(),
+  agentSessionId: text("agent_session_id").references(() => agentSessions.id),
+  targetId: text("target_id").references(() => preparationTargets.id, { onDelete: "set null" }),
+  profile: text("profile", { mode: "json" }).$type<ProposedProfile>(),
+  decisions: text("decisions", { mode: "json" }).$type<ProposedDecision[]>().notNull(),
+  status: text("status", { enum: reviewProposalStatuses }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  settledAt: integer("settled_at", { mode: "timestamp_ms" }),
 });

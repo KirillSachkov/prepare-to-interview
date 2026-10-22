@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from "react";
 import { chatNodeId, type PracticeRequest, type PracticeSetNode } from "@prepare-to-interview/shared";
 import { flowNodeTypes, nodeMenu, NotifyContext, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
+import { HistoryDialog } from "../history/HistoryView.tsx";
 import { focusCardEvent } from "../practice/focus.ts";
 import { requestResearch, useProposedCount } from "../skillmap/skillmap-api.ts";
 import { SkillMapView, type SkillMapTab } from "../skillmap/SkillMapView.tsx";
@@ -35,7 +36,7 @@ const fitPadding = { top: "120px", bottom: "72px", left: "48px", right: "48px" }
 const fitOptions: FitViewOptions = { padding: fitPadding, maxZoom: 1 };
 const zoomDuration = { duration: 150 };
 
-type Dialog = "shortcuts" | "settings" | "question" | "topic" | "mock";
+type Dialog = "shortcuts" | "settings" | "question" | "topic" | "mock" | "history";
 
 /** The Practice set node a Card belongs to. */
 function setOfCard(nodes: FlowNode[], cardId: string): FlowNode | undefined {
@@ -116,6 +117,10 @@ export function CanvasShell() {
       }
       submitPracticeSet({ id: node.id, kind: "practice_set", position: node.position, collapsed: node.data.collapsed, data: content })
         .catch((e: unknown) => setNotice(`Не удалось отправить подборку: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    openHistory: () => {
+      setPopover(null);
+      setDialog("history");
     },
     due: activeTarget?.due ?? null,
     skillMap,
@@ -260,6 +265,10 @@ export function CanvasShell() {
             practise={(topic) => askForPractice({ kind: "topic", topic })}
             research={commands["research.start"].run ?? (() => undefined)}
             notify={setNotice}
+            discussed={() => {
+              setSkillMap(false);
+              showChat();
+            }}
           />
         )}
 
@@ -312,6 +321,15 @@ export function CanvasShell() {
         {menu && <ContextMenu menu={menu} close={() => setMenu(null)} />}
         {dialog === "shortcuts" && <ShortcutsDialog commands={commands} close={() => setDialog(null)} />}
         {dialog === "settings" && <SettingsDialog close={() => setDialog(null)} />}
+        {dialog === "history" && (
+          <HistoryDialog
+            close={() => setDialog(null)}
+            discussed={() => {
+              setDialog(null);
+              showChat();
+            }}
+          />
+        )}
         {dialog === "mock" && (
           <MockDialog
             close={() => setDialog(null)}

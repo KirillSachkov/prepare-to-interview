@@ -1,10 +1,12 @@
-// Where history of results appears in the Skill map (story 77). Ticket #9 replaces this
-// placeholder with the history of graded Practice sets and Mock interviews.
-export function SkillMapHistory() {
+// History of results in the Skill map (story 77): graded Practice sets and Mock interviews that
+// left the Canvas, all of them on the map and those touching a Topic in its detail.
+import { HistoryView } from "../history/HistoryView.tsx";
+
+export function SkillMapHistory({ topic, onDiscuss }: { topic?: string; onDiscuss: () => void }) {
   return (
-    <section aria-label="История" data-slot="history" className="mb-8">
+    <section aria-label={topic ? "История по теме" : "История итогов"} className="mt-8 mb-8">
       <h3 className="mb-2 text-[12px] font-medium tracking-wider text-stone-400 uppercase">История</h3>
-      <p className="text-[12.5px] text-stone-400">Итоги подборок попадут сюда сами при новой подборке или на следующий день.</p>
+      <HistoryView {...(topic !== undefined && { topic })} onDiscuss={onDiscuss} />
     </section>
   );
 }

@@ -122,6 +122,8 @@ describe("onboarding Activity", () => {
         tool("finish_activity", { status: "completed", summary: "Go backend Middle target with five topics agreed." }),
         reply("Готово."),
       ],
+      // The review the app starts once onboarding completed.
+      [reply("Итоги: цель Go backend."), tool("end_session", { summary: "Onboarding set up the Go backend target." })],
       [reply("Чем займёмся?")],
     ]);
 
@@ -132,7 +134,7 @@ describe("onboarding Activity", () => {
     expect(first.context?.[0]?.text).toMatch(/^<activity_skill name="onboarding">\n[\s\S]*\n<\/activity_skill>$/);
 
     const done = await say(server, "3 года на Go, хочу Middle backend, собеседование 5 ноября");
-    expect(done.messages.at(-1)?.toolCalls.map((c) => [c.tool, c.status])).toEqual([
+    expect(done.messages.find((m) => m.text === "Готово.")?.toolCalls.map((c) => [c.tool, c.status])).toEqual([
       ["save_profile", "completed"],
       ["save_target", "completed"],
       ["record_decision", "completed"],
@@ -179,14 +181,16 @@ describe("onboarding Activity", () => {
       activity: null,
     });
 
-    // After onboarding the Interviewer works on the target, outside any Activity.
+    // After onboarding and its review the Interviewer works on the target, outside any Activity,
+    // in a fresh Agent session that starts from a Briefing.
     await say(server, "Что дальше?");
-    expect(state(driver().prompts[2])).toMatchObject({
+    expect(driver().prompts[2]?.context?.map((c) => c.uri)).toEqual([skillUri("review")]);
+    expect(state(driver().prompts[3])).toMatchObject({
       activity: null,
       active_target: { id: list.activeId, name: "Go backend", days_left: 14 },
       has_profile: true,
     });
-    expect(driver().prompts[2]?.context).toBeUndefined();
+    expect(driver().prompts[3]?.context?.map((c) => c.uri)).toEqual(["app://context/briefing"]);
   });
 
   it("can be skipped without a target and does not restart by itself", async () => {
@@ -256,7 +260,8 @@ describe("onboarding Activity", () => {
     const [first, second] = driver().prompts.map((p) => state(p).activity?.id);
     expect(second).toBeDefined();
     expect(second).not.toBe(first);
-    expect(driver().prompts[1]?.context?.[0]?.uri).toBe(skillUri("onboarding"));
+    // The first target's onboarding completed: a fresh Agent session starts from a Briefing.
+    expect(driver().prompts[1]?.context?.map((c) => c.uri)).toEqual(["app://context/briefing", skillUri("onboarding")]);
 
     // The new Activity waits for its own target before it can complete.
     const early = await mcp.call("finish_activity", { status: "completed", summary: "Done." });

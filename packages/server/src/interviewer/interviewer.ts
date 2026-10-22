@@ -4,6 +4,7 @@ import { appContextUri, skillUri } from "@prepare-to-interview/shared";
 import type { AllowedBuiltin, McpServerConfig, SessionConfig, TurnInput } from "../agent/driver.ts";
 import type { ActivityKind } from "../db/schema.ts";
 import type { Domain } from "../domain/domain.ts";
+import { callerHeader } from "../mcp/tool.ts";
 import type { MockAnswer, MockInterviews } from "../domain/mock.ts";
 import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
 
@@ -56,14 +57,22 @@ export interface InterviewerOptions {
   mock: MockInterviews;
   /** The app's MCP servers; read lazily because the URL is known only after the server listens. */
   mcpServers: () => McpServerConfig[];
+  /** The Briefing a fresh Chat Agent session starts from (see `continuity.ts`). */
+  briefings?: Briefings;
   now?: () => Date;
   /** Further hidden context for each turn. */
   turnContext?: TurnContextSource[];
   research?: () => ResearchState;
 }
 
+export interface Briefings {
+  /** The Briefing for the session, or `null` once it has one. */
+  briefing(agentSessionId: string): string | null;
+  briefed(agentSessionId: string): void;
+}
+
 /** Activities that have a skill file in the product directory. */
-const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set", "mock_interview"];
+const skilledActivities: readonly ActivityKind[] = ["onboarding", "practice_set", "mock_interview", "review"];
 
 /** Skill directories named apart from their Activity. */
 const skillDirs: Partial<Record<ActivityKind, string>> = { mock_interview: "interview" };
@@ -77,7 +86,7 @@ const skillReferences: Partial<Record<ActivityKind, string[]>> = {
 /**
  * Seam between the Chat and Interviewer orchestration: decides what each Agent session gets
  * (persona, tools, MCP servers), starts Activities the server owns, and composes each turn's
- * hidden state and the Activity's skill. Briefings and session rotation extend this class.
+ * hidden state, the Briefing of a fresh session, and the Activity's skill. Session rotation lives in `continuity.ts`.
  */
 export class Interviewer {
   readonly #persona: string;
@@ -86,6 +95,7 @@ export class Interviewer {
   readonly #practice: Practice;
   readonly #mock: MockInterviews;
   readonly #mcpServers: () => McpServerConfig[];
+  readonly #briefings: Briefings | undefined;
   readonly #now: () => Date;
   readonly #turnContext: TurnContextSource[];
   readonly #research: () => ResearchState;
@@ -102,6 +112,7 @@ export class Interviewer {
     this.#practice = options.practice;
     this.#mock = options.mock;
     this.#mcpServers = options.mcpServers;
+    this.#briefings = options.briefings;
     this.#now = options.now ?? (() => new Date());
     this.#turnContext = options.turnContext ?? [];
     this.#research = options.research ?? (() => ({ running: false, proposed_waiting: 0 }));
@@ -109,9 +120,9 @@ export class Interviewer {
 
   /**
    * What the agent receives for one Candidate message in the given Agent session: the hidden
-   * state; until the session has the running Activity's skill, that skill; results of Practice
-   * sets graded since the last turn; and the Card the message is about, or the Candidate's answer
-   * when it is a Card of the running Mock interview. A Candidate without any
+   * state; the Briefing when the session is new; until the session has the running Activity's
+   * skill, that skill; results of Practice sets graded since the last turn; and the Card the
+   * message is about, or the Candidate's answer when it is a Card of the running Mock interview. A Candidate without any
    * Preparation target starts in onboarding unless they skipped it before. Call `sent` once the
    * agent took the turn, so a failed turn sends the skill and the results again.
    */
@@ -125,6 +136,8 @@ export class Interviewer {
     const skill = activity && this.#skills.get(activity.kind);
     const key = activity && `${agentSessionId}:${activity.id}`;
     const context: NonNullable<TurnInput["context"]> = [];
+    const briefing = this.#briefings?.briefing(agentSessionId);
+    if (briefing) context.push({ uri: appContextUri("briefing"), text: briefing });
     const sendSkill = skill && key && !this.#delivered.has(key);
     if (sendSkill) context.push({ uri: skillUri(activity.kind), text: skill });
     const results = this.#practice.unreported();
@@ -144,6 +157,7 @@ export class Interviewer {
     return {
       input: { text, hiddenState, ...(context.length && { context }) },
       sent: () => {
+        if (briefing) this.#briefings?.briefed(agentSessionId);
         if (sendSkill) this.#delivered.add(key);
         this.#practice.markReported(results.map((r) => r.setId));
         for (const part of extra) part.sent();
@@ -165,7 +179,8 @@ export class Interviewer {
     return {
       persona: this.#persona,
       allowedBuiltins: this.allowedBuiltins,
-      mcpServers: this.#mcpServers(),
+      // Marks the Chat's tool calls, which end_session and the review rules act on.
+      mcpServers: this.#mcpServers().map((server) => ({ ...server, headers: [...server.headers, { name: callerHeader, value: "chat" }] })),
       ...(model && { model }),
     };
   }
@@ -258,8 +273,8 @@ function describeResult(result: SetResult): string {
     })),
     note:
       result.mode === "mock"
-        ? "The Mock interview is over and graded: the Candidate sees grades and feedback on the Cards and a summary in the Chat. When they reply, give the review: strengths first, then the single most important gap, one priority, and the next step. Do not regrade."
-        : "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask; do not regrade.",
+        ? "The Mock interview is over and graded: the Candidate sees grades and feedback on the Cards and a summary in the Chat. When they reply, give the review: strengths first, then the single most important gap, one priority, and the next step. Never regrade on your own; a disputed grade is corrected only through correct_grade."
+        : "The Candidate saw the grades on the Cards and a short summary in the Chat. Discuss weak spots when they ask. Never regrade on your own; a disputed grade is corrected only through correct_grade, as the skill says.",
   });
 }
 

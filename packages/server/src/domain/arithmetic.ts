@@ -107,3 +107,17 @@ export function readiness(topics: { priority: TopicPriority; mastery: number | n
   }
   return Math.round((100 * sum) / weight);
 }
+
+/** Mastery 0–1 as a whole percentage, as tools and the Briefing report it. */
+export function masteryPercent(mastery: number | null): number | null {
+  return mastery === null ? null : Math.round(mastery * 100);
+}
+
+/** A Topic whose Mastery is below this needs repetition. */
+export const weakMastery = 0.7;
+
+/** The local calendar date of an instant as `YYYY-MM-DD`. */
+export function localDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}

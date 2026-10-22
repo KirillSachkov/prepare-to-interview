@@ -400,7 +400,8 @@ export function ResultCard(props: Props) {
           />
         ))}
       </div>
-      <div className="mt-3 flex justify-end text-[11.5px]">
+      <div className="mt-3 flex items-center justify-between text-[11.5px]">
+        <span className="text-stone-400">уйдёт в историю сам</span>
         <button type="button" data-focus-target className="nodrag text-indigo-600" onClick={() => props.setCollapsed(false)}>
           Развернуть
         </button>

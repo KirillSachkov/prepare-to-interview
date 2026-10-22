@@ -34,6 +34,8 @@ interface Harness {
   driver: () => FakeDriver;
   /** Research sessions: their config and the brief they received. */
   research: { config: SessionConfig; input: TurnInput }[];
+  /** Inputs of the review turns the app started at Activity boundaries. */
+  reviews: TurnInput[];
   /** Turns the next Research sessions replay, in order; a function builds the turn from the brief. */
   researchTurns: (FakeTurn | ((brief: string) => FakeTurn))[];
   call: (name: string, args?: Record<string, unknown>) => Promise<{ isError: boolean; text: string; data: Record<string, unknown> }>;
@@ -42,8 +44,14 @@ interface Harness {
 async function start(turns: FakeTurn[] = [], dirs = makeTempDirs()): Promise<Harness> {
   const research: Harness["research"] = [];
   const researchTurns: Harness["researchTurns"] = [];
+  const reviews: TurnInput[] = [];
   const respond = (config: SessionConfig, input: TurnInput): FakeTurn | undefined => {
     if (isGrader(config)) return [reply(JSON.stringify({ score: 2, quote: input.text.match(/<answer>\n(\S+)/)?.[1] ?? "", right: "Верно.", gap: "Мало деталей." }))];
+    // The review the app starts at an Activity boundary, such as a finished Research batch.
+    if (input.text.includes('<app_context name="activity_ended">')) {
+      reviews.push(input);
+      return [];
+    }
     if (!isResearch(config)) return undefined;
     research.push({ config, input });
     const next = researchTurns.shift() ?? [reply("Ничего не нашлось.")];
@@ -66,7 +74,7 @@ async function start(turns: FakeTurn[] = [], dirs = makeTempDirs()): Promise<Har
     const result = await client.callTool({ name, arguments: args });
     return { isError: result.isError === true, text: (result.content as { text: string }[])[0]?.text ?? "", data: result.structuredContent as Record<string, unknown> };
   };
-  return { server, dataDir: dirs.dataDir, driver: () => driver, research, researchTurns, call };
+  return { server, dataDir: dirs.dataDir, driver: () => driver, research, researchTurns, reviews, call };
 }
 
 async function api(server: RunningServer, path: string, init: { method?: string; body?: unknown } = {}): Promise<{ status: number; body: unknown }> {
@@ -373,6 +381,7 @@ describe("Research Activity", () => {
     await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).messages.at(-1)?.text).toBe(
       "Исследование завершено: предложено (вопросов — 1). Одобрите или отклоните их во вкладке «Предложено» (B).",
     );
+    // A finished batch is an Activity boundary: the app starts a review once no other Activity runs.
     const queue = await proposed(h);
     expect(queue.batches).toHaveLength(1);
     expect(queue.batches[0]).toMatchObject({ running: false, summary: "Посмотрел Хабр и вакансию: предложил вопрос про VACUUM.", targetName: "Backend Go" });
@@ -406,6 +415,10 @@ describe("Research Activity", () => {
       .toBe("Исследование завершено: в банк добавлено (вопросов — 1, тем — 1). Посмотреть можно на карте навыков (K).");
     expect((await proposed(h)).count).toBe(0);
     expect((await skillMap(h)).topics.find((t) => t.name === "Kafka")).toMatchObject({ priority: "high", questions: 1 });
+
+    // The finished batch is an Activity boundary: with nothing else running, the app starts a review.
+    await expect.poll(() => h.reviews.length).toBe(1);
+    expect(h.reviews[0]!.text).toContain('"research"');
 
     // A batch that finds nothing says so.
     await h.call("start_research", {});
@@ -447,6 +460,34 @@ describe("Research Activity", () => {
     expect(viaTool.text).toContain("A Mock interview is running");
     expect(await api(h.server, bankPaths.researchRequest)).toEqual({ status: 409, body: { error: "сначала завершите мок-интервью." } });
     expect(h.research).toEqual([]);
+  });
+
+  it("holds a batch's result while a Mock interview runs, so nothing interrupts it", async () => {
+    const h = await withTarget([[reply("Продолжим мок.")], [reply("Вот что нашлось.")]]);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    h.researchTurns.push([{ waitFor: gate }, reply("Готово.")]);
+    expect((await h.call("start_research", {})).isError).toBe(false);
+    await expect.poll(() => h.research.length).toBe(1);
+    expect((await h.call("start_mock_interview", { duration_minutes: 20 })).isError).toBe(false);
+    release();
+    await expect.poll(async () => (await h.call("get_profile")).data.activity).toMatchObject({ kind: "mock_interview" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const texts = async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).messages.map((m) => m.text);
+    expect(await texts()).not.toContain("Исследование завершено: нового для банка не нашлось.");
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Следующий вопрос?" } });
+    await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).busy).toBe(false);
+    expect(h.driver().prompts[0]!.context?.some((c) => c.uri.startsWith("app://context/research/"))).toBeFalsy();
+    expect(await texts()).not.toContain("Исследование завершено: нового для банка не нашлось.");
+
+    // Once the mock ended, the next turn brings the held result.
+    expect((await h.call("finish_mock_interview", {})).isError).toBe(false);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Что с исследованием?" } });
+    await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).busy).toBe(false);
+    expect(await texts()).toContain("Исследование завершено: нового для банка не нашлось.");
+    // The review the app started after the mock, or the next Candidate turn, carries it.
+    const after = [...h.reviews, ...h.driver().prompts.slice(1)];
+    expect(after.filter((p) => p.context?.some((c) => c.uri.startsWith("app://context/research/")))).toHaveLength(1);
   });
 
   it("needs a Preparation target", async () => {

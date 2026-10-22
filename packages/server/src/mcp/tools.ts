@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { maxPracticeCards } from "@prepare-to-interview/shared";
 import { practiceSetKinds, questionTypes, revealModes, topicPriorities } from "../db/schema.ts";
-import { maxHintRungs } from "../domain/arithmetic.ts";
+import { masteryPercent, maxHintRungs } from "../domain/arithmetic.ts";
 import {
   DomainError,
   languages,
@@ -12,19 +12,21 @@ import {
   type TargetDetail,
 } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
+import type { Continuity } from "../interviewer/continuity.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
+import { continuityTools, refuseDuringReview } from "./continuity-tools.ts";
 import { mockTools } from "./mock-tools.ts";
-import { defineTool, type ToolDefinition } from "./tool.ts";
+import { defineTool, shortText, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
   domain: Domain;
   practice: Practice;
   interviewer: Interviewer;
+  continuity: Continuity;
   mock: MockRunner;
 }
 
-const shortText = (max: number) => z.string().trim().min(1).max(max);
 const topicName = shortText(120).describe("Topic name as the Market names it, such as \"PostgreSQL indexes\".");
 const calendarDate = z.iso.date().describe("Local calendar date YYYY-MM-DD.");
 
@@ -139,8 +141,6 @@ export function toPracticeQuestion(card: z.output<typeof practiceCardInput>): Pr
   return { topic: card.topic, prompt: card.prompt, type: card.type, ...(card.options && { options: card.options }), ...fill };
 }
 
-const percent = (mastery: number | null) => (mastery === null ? null : Math.round(mastery * 100));
-
 const queuedOutput = z.strictObject({
   question_id: z.string(),
   topic: z.string(),
@@ -152,7 +152,7 @@ const queuedOutput = z.strictObject({
 });
 
 /** The app's MCP tool set; every change goes through the domain core, which validates it. */
-export function createTools({ domain, practice, interviewer, mock }: ToolDeps): ToolDefinition[] {
+export function createTools({ domain, practice, interviewer, continuity, mock }: ToolDeps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_profile",
@@ -222,7 +222,8 @@ export function createTools({ domain, practice, interviewer, mock }: ToolDeps): 
       output: profileFields,
       fixHint:
         'Pass any of {"experience": "...", "stack": ["..."], "strengths": ["..."], "weak_spots": ["..."], "preferences": "...", "calibration": [{"topic": "...", "level": 0-3, "note": "..."}]} and no other fields.',
-      run: (input) => {
+      run: (input, context) => {
+        refuseDuringReview(domain, context);
         const profile = domain.saveProfile({
           ...(input.experience !== undefined && { experience: input.experience }),
           ...(input.stack && { stack: input.stack }),
@@ -300,7 +301,8 @@ export function createTools({ domain, practice, interviewer, mock }: ToolDeps): 
       }),
       output: z.strictObject({ decision_id: z.string(), target_id: z.string().nullable() }),
       fixHint: 'Pass {"decision": "<what was agreed>", "reason": "<optional>", "target_id": "<optional>"}.',
-      run: (input) => {
+      run: (input, context) => {
+        refuseDuringReview(domain, context);
         const d = domain.recordDecision({
           decision: input.decision,
           ...(input.reason !== undefined && { reason: input.reason }),
@@ -425,13 +427,13 @@ export function createTools({ domain, practice, interviewer, mock }: ToolDeps): 
           prompt: q.prompt,
           box: q.box,
           due_on: q.dueOn,
-          mastery: percent(q.mastery),
+          mastery: masteryPercent(q.mastery),
         });
         return {
           target_id: targetId,
           readiness: progress.readiness,
           due: progress.due,
-          topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: percent(t.mastery), questions: t.questions, due: t.due })),
+          topics: progress.topics.map((t) => ({ name: t.name, priority: t.priority, mastery: masteryPercent(t.mastery), questions: t.questions, due: t.due })),
           due_questions: queue.due.map(queued),
           new_questions: queue.neverPractised.map(queued),
         };
@@ -496,5 +498,6 @@ export function createTools({ domain, practice, interviewer, mock }: ToolDeps): 
         `Placed ${o.kind === "quiz" ? "a Quiz" : "a Practice set"} with ${o.cards.length} Cards on the Canvas (${o.practice_set_id}). The Candidate answers on the Cards; the app grades and tells you the results.${o.skill ? ` Follow this skill:\n\n${o.skill}` : ""}`,
     }),
     ...mockTools({ mock, interviewer }),
+    ...continuityTools({ domain, practice, continuity }),
   ];
 }

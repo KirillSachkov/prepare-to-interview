@@ -27,6 +27,8 @@ export const apiPaths = {
   practiceRequest: "/api/practice/request",
   /** GET a {@link ProgressResponse}: Mastery and Due per Topic of the active Preparation target. */
   progress: "/api/progress",
+  /** GET a {@link HistoryResponse}: graded Practice sets that left the Canvas. */
+  history: "/api/history",
   /** POST a {@link MockRequest}: starts a Mock interview and asks the Interviewer in the Chat. */
   mockRequest: "/api/mock/request",
   mcp: "/mcp",
@@ -121,6 +123,8 @@ export interface CardAttempt {
   gap: string | null;
   /** Correct option indexes of a test Card. */
   correct: number[] | null;
+  /** Set once the Interviewer corrected a disputed grade: the earlier score and why. */
+  corrected?: { from: number; reason: string };
 }
 
 /** One Question placed on the Canvas, as the Candidate sees it. */
@@ -279,7 +283,25 @@ export interface ChatMessage {
   toolCalls: ChatToolCall[];
   /** The Card the message is about, such as after «Обсудить». */
   card?: { id: string; prompt: string };
+  /** Candidate profile and Decision log updates the Interviewer proposed; the app saves them only once the Candidate confirms. */
+  proposal?: ReviewProposalView;
 }
+
+/** Candidate profile and Decision log updates proposed in a review, as the Chat shows them. */
+export interface ReviewProposalView {
+  id: string;
+  status: "pending" | "accepted" | "declined";
+  /** One line per proposed change, in Russian labels. */
+  items: string[];
+}
+
+/** REST paths of the Candidate's answer to a review proposal. */
+export const proposalPaths = {
+  /** POST: saves the proposed profile and Decision log updates. */
+  accept: (proposalId: string) => `/api/proposals/${proposalId}/accept`,
+  /** POST: drops the proposal; nothing is saved. */
+  decline: (proposalId: string) => `/api/proposals/${proposalId}/decline`,
+} as const;
 
 export interface ChatSnapshot {
   messages: ChatMessage[];
@@ -383,6 +405,18 @@ export interface TopicProgress {
   /** Active Questions in the Topic and its subtopics. */
   questions: number;
   due: number;
+}
+
+/** One graded Practice set in history. */
+export interface HistoryEntry {
+  id: string;
+  /** Milliseconds since the epoch. */
+  gradedAt: number;
+  set: PracticeSetView;
+}
+
+export interface HistoryResponse {
+  entries: HistoryEntry[];
 }
 
 export interface ProgressResponse {

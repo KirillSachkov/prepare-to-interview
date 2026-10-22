@@ -36,6 +36,8 @@ export interface ResearcherOptions {
   mcpServers: () => McpServerConfig[];
   /** Posts an app-composed message into the Chat. */
   post: (text: string) => void;
+  /** While true (a Mock interview runs), results wait: nothing interrupts the mock. */
+  quiet?: () => boolean;
 }
 
 /** A finished batch the Chat Interviewer has not heard about yet. */
@@ -68,6 +70,11 @@ export class Researcher {
   readonly #persona: string;
   #running: Run | undefined;
   readonly #finished: Finished[] = [];
+  /**
+   * What a batch that ended during a Mock interview still has to do: complete its Activity (an
+   * Activity boundary, which would rotate the session and start a review) and tell the Chat.
+   */
+  readonly #held: (() => void)[] = [];
   #closing = false;
 
   constructor(options: ResearcherOptions) {
@@ -131,6 +138,8 @@ export class Researcher {
    * Call `sent` once the agent took the turn.
    */
   takeResults(): { blocks: { uri: string; text: string }[]; sent: () => void } {
+    if (this.#o.quiet?.()) return { blocks: [], sent: () => undefined };
+    for (const settle of this.#held.splice(0)) settle();
     const items = [...this.#finished];
     return {
       blocks: items.map((f) => ({ uri: appContextUri(`research/${f.activityId}`), text: describeFinished(f) })),
@@ -162,7 +171,7 @@ export class Researcher {
     const { agent, models } = this.#o.settings.agentSettings();
     if (!agent) {
       this.#end(run.activityId, "abandoned", "No agent is chosen.", autoApprove);
-      this.#o.post("Исследование не началось: выберите агента в настройках чата.");
+      this.#whenAllowed(() => this.#o.post("Исследование не началось: выберите агента в настройках чата."));
       return;
     }
     const model = models[agent];
@@ -214,6 +223,12 @@ export class Researcher {
     }
   }
 
+  /** Runs now, or once the Chat is no longer quiet (at the next turn after the Mock interview). */
+  #whenAllowed(settle: () => void): void {
+    if (this.#o.quiet?.()) this.#held.push(settle);
+    else settle();
+  }
+
   #fail(activityId: string, agent: AgentId, error: AgentError): void {
     this.#end(activityId, "abandoned", `Research failed: ${error.kind}.`, false);
     const label = agentLabels[agent];
@@ -223,7 +238,7 @@ export class Researcher {
       limit_reached: `у ${label} закончились лимиты`,
       failed: `${label} остановился с ошибкой`,
     }[error.kind];
-    this.#o.post(`Исследование прервалось: ${why}. То, что агент успел предложить, ждёт во вкладке «Предложено» (B).`);
+    this.#whenAllowed(() => this.#o.post(`Исследование прервалось: ${why}. То, что агент успел предложить, ждёт во вкладке «Предложено» (B).`));
   }
 
   /** Ends the batch, auto-approves it when asked, tells the Chat, and remembers it for the next turn. */
@@ -231,10 +246,12 @@ export class Researcher {
     const counts = this.#counts(activityId);
     if (autoApprove && counts.topics + counts.questions > 0) this.#o.bank.review({ action: "approve", batchId: activityId });
     const text = summary.slice(0, maxSummary);
-    this.#o.domain.endBackgroundActivity(activityId, status, text);
     this.#o.bank.publish();
-    this.#finished.push({ activityId, status, proposedTopics: counts.topics, proposedQuestions: counts.questions, autoApproved: autoApprove, summary: text });
-    if (status === "completed") this.#o.post(announcement(counts, autoApprove, stopped));
+    this.#whenAllowed(() => {
+      this.#o.domain.endBackgroundActivity(activityId, status, text);
+      this.#finished.push({ activityId, status, proposedTopics: counts.topics, proposedQuestions: counts.questions, autoApproved: autoApprove, summary: text });
+      if (status === "completed") this.#o.post(announcement(counts, autoApprove, stopped));
+    });
   }
 
   /** Items the batch proposed, whatever their status now. */

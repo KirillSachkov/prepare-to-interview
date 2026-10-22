@@ -8,7 +8,7 @@ import {
   chatNodeId,
   practiceSetPaths,
   tokenQueryParam,
-  type CanvasSnapshot,
+  type CanvasSnapshot, type ChatSnapshot,
   type LayoutUpdateRequest,
 } from "@prepare-to-interview/shared";
 import { e2eEnv } from "../env.ts";
@@ -67,6 +67,18 @@ export const placeQuiz = (baseURL: string, title: string) =>
 export const saveTarget = (baseURL: string, target: Record<string, unknown>) =>
   agentTurn(baseURL, [{ callTool: { server: "interview", tool: "save_target", arguments: target } }]);
 
+/** Calls the app's REST API as the browser does, with the access token. */
+export async function apiCall(baseURL: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<unknown> {
+  const res = await fetch(new URL(path, baseURL), {
+    method: init.method ?? "GET",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json" },
+    ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+  });
+  expect(res.ok, `${path}: ${res.status}`).toBe(true);
+  const text = await res.text();
+  return text ? (JSON.parse(text) as unknown) : undefined;
+}
+
 /** Picks the agent as the Candidate does in settings; the e2e server answers with the fake driver. */
 export async function chooseAgent(baseURL: string): Promise<void> {
   const res = await fetch(new URL(apiPaths.agentSettings, baseURL), {
@@ -112,6 +124,20 @@ export async function submitUnfinishedSets(baseURL: string): Promise<void> {
     const res = await fetch(new URL(practiceSetPaths.submit(node.id), baseURL), { method: "POST", headers });
     expect(res.status).toBe(202);
   }
+  await settled(baseURL);
+}
+
+/** Waits until no Practice set is grading and the Chat is idle, such as after the review the app starts for a graded set. */
+export async function settled(baseURL: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${token()}` };
+  const get = async <T>(path: string) => (await (await fetch(new URL(path, baseURL), { headers })).json()) as T;
+  await expect
+    .poll(async () => {
+      const canvas = await get<CanvasSnapshot>(apiPaths.canvas);
+      const grading = canvas.nodes.some((n) => n.kind === "practice_set" && n.data.status === "grading");
+      return !grading && !(await get<ChatSnapshot>(apiPaths.chat)).busy;
+    })
+    .toBe(true);
 }
 
 export { expect, test } from "@playwright/test";

@@ -9,7 +9,9 @@ import {
   cardPaths,
   maxAnswerLength,
   practiceSetPaths,
+  proposalPaths,
   type AddQuestionResponse,
+  type HistoryResponse,
   type AgentsResponse,
   type ProgressResponse,
   type ServerEvent,
@@ -21,6 +23,7 @@ import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import { revealModes } from "../db/schema.ts";
 import { DomainError, type Domain } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
+import type { Continuity } from "../interviewer/continuity.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
 import type { PracticeRunner } from "../interviewer/practice-runner.ts";
 import type { EventBus } from "../events.ts";
@@ -38,6 +41,7 @@ export interface AppDeps {
   domain: Domain;
   practice: Practice;
   runner: PracticeRunner;
+  continuity: Continuity;
   mock: MockRunner;
   settings: Settings;
   detectAgents: AgentDetector;
@@ -160,6 +164,13 @@ export function createApp(deps: AppDeps): Hono {
     return domainResult(() => c.json(deps.practice.setReveal(idParam(c), body.data.reveal)));
   });
 
+  app.get(apiPaths.history, (c) =>
+    c.json({
+      entries: deps.practice.history().map((e) => ({ id: e.id, gradedAt: e.gradedAt.getTime(), set: e.set })),
+    } satisfies HistoryResponse),
+  );
+  app.post(proposalPaths.accept(":id"), (c) => domainResult(() => c.json(deps.continuity.acceptProposal(idParam(c)))));
+  app.post(proposalPaths.decline(":id"), (c) => domainResult(() => c.json(deps.continuity.declineProposal(idParam(c)))));
   mockRoutes(app, deps);
 
   app.get(apiPaths.agents, (c) =>

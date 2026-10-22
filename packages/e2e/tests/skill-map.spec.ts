@@ -73,6 +73,8 @@ test("Skill map shows Mastery, untouched Topics, and readiness; a Topic shows it
   const cardId = (placed.cards as { card_id: string }[])[0]!.card_id;
   await rest(baseURL!, cardPaths.draft(cardId), "PUT", { choices: [0] });
   await rest(baseURL!, practiceSetPaths.submit(placed.practice_set_id as string), "POST");
+  // The result Card stays on the shared Canvas: keep it next to the Chat so later tests see the Chat at full size.
+  await rest(baseURL!, apiPaths.canvasLayout, "PUT", { updates: [{ nodeId: placed.practice_set_id as string, position: { x: 0, y: 0 } }] });
 
   await openCanvas(page);
   await page.keyboard.press("k");
@@ -87,6 +89,8 @@ test("Skill map shows Mastery, untouched Topics, and readiness; a Topic shows it
   await expect(rendering).toContainText("не начата");
   await expect(map.getByRole("region", { name: "React" })).toBeVisible();
   await expect(toolbar(page).getByRole("button", { name: "Карта навыков" })).toHaveAttribute("aria-pressed", "true");
+  // History of results is reachable from the Skill map.
+  await expect(map.getByRole("region", { name: "История итогов" })).toBeVisible();
 
   // Topic detail: the Attempt history and the Reference answer.
   await hooks.getByRole("button", { name: /React hooks/ }).click();
@@ -94,6 +98,7 @@ test("Skill map shows Mastery, untouched Topics, and readiness; a Topic shows it
   await expect(question.getByRole("region", { name: "История попыток" })).toContainText("тренировка");
   await expect(question.getByRole("region", { name: "История попыток" })).toContainText("3/3");
   await expect(question).toContainText("черновик");
+  await expect(map.getByRole("region", { name: "История по теме" })).toBeVisible();
   await question.getByRole("button", { name: "Изменить" }).click();
   await question.getByLabel("Эталонный ответ").fill("Cleanup вызывается перед повторным запуском эффекта и при размонтировании.");
   await question.getByRole("button", { name: "Сохранить" }).click();

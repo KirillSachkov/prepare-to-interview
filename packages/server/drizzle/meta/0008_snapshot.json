@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "181d3ceb-b1f9-4bba-9b9c-898aae2641f4",
+  "id": "379f6816-58bc-4a7b-8e60-d270f4d6dcd6",
   "prevId": "e88dab79-f437-45da-a5bf-08598e9d9dee",
   "tables": {
     "activities": {
@@ -143,6 +143,27 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "rotate_reason": {
+          "name": "rotate_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "briefed_at": {
+          "name": "briefed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -279,6 +300,27 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "corrected_from": {
+          "name": "corrected_from",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "correction_reason": {
+          "name": "correction_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "corrected_at": {
+          "name": "corrected_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -603,6 +645,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "proposal_id": {
+          "name": "proposal_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -694,65 +743,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "note_sources": {
-      "name": "note_sources",
-      "columns": {
-        "note_id": {
-          "name": "note_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "note_sources_note_id_research_notes_id_fk": {
-          "name": "note_sources_note_id_research_notes_id_fk",
-          "tableFrom": "note_sources",
-          "tableTo": "research_notes",
-          "columnsFrom": [
-            "note_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "note_sources_source_id_sources_id_fk": {
-          "name": "note_sources_source_id_sources_id_fk",
-          "tableFrom": "note_sources",
-          "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "note_sources_note_id_source_id_pk": {
-          "columns": [
-            "note_id",
-            "source_id"
-          ],
-          "name": "note_sources_note_id_source_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -853,6 +843,13 @@
         },
         "reported_at": {
           "name": "reported_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archived_at": {
+          "name": "archived_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1031,65 +1028,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "question_sources": {
-      "name": "question_sources",
-      "columns": {
-        "question_id": {
-          "name": "question_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "question_sources_question_id_questions_id_fk": {
-          "name": "question_sources_question_id_questions_id_fk",
-          "tableFrom": "question_sources",
-          "tableTo": "questions",
-          "columnsFrom": [
-            "question_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "question_sources_source_id_sources_id_fk": {
-          "name": "question_sources_source_id_sources_id_fk",
-          "tableFrom": "question_sources",
-          "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "question_sources_question_id_source_id_pk": {
-          "columns": [
-            "question_id",
-            "source_id"
-          ],
-          "name": "question_sources_question_id_source_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "questions": {
       "name": "questions",
       "columns": {
@@ -1171,13 +1109,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "activity_id": {
-          "name": "activity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1200,27 +1131,14 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "questions_activity_id_activities_id_fk": {
-          "name": "questions_activity_id_activities_id_fk",
-          "tableFrom": "questions",
-          "tableTo": "activities",
-          "columnsFrom": [
-            "activity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "research_notes": {
-      "name": "research_notes",
+    "review_proposals": {
+      "name": "review_proposals",
       "columns": {
         "id": {
           "name": "id",
@@ -1229,25 +1147,11 @@
           "notNull": true,
           "autoincrement": false
         },
-        "slug": {
-          "name": "slug",
+        "agent_session_id": {
+          "name": "agent_session_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "body": {
-          "name": "body",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "target_id": {
@@ -1257,6 +1161,27 @@
           "notNull": false,
           "autoincrement": false
         },
+        "profile": {
+          "name": "profile",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decisions": {
+          "name": "decisions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1264,27 +1189,32 @@
           "notNull": true,
           "autoincrement": false
         },
-        "updated_at": {
-          "name": "updated_at",
+        "settled_at": {
+          "name": "settled_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         }
       },
-      "indexes": {
-        "research_notes_slug": {
-          "name": "research_notes_slug",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "research_notes_target_id_preparation_targets_id_fk": {
-          "name": "research_notes_target_id_preparation_targets_id_fk",
-          "tableFrom": "research_notes",
+        "review_proposals_agent_session_id_agent_sessions_id_fk": {
+          "name": "review_proposals_agent_session_id_agent_sessions_id_fk",
+          "tableFrom": "review_proposals",
+          "tableTo": "agent_sessions",
+          "columnsFrom": [
+            "agent_session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "review_proposals_target_id_preparation_targets_id_fk": {
+          "name": "review_proposals_target_id_preparation_targets_id_fk",
+          "tableFrom": "review_proposals",
           "tableTo": "preparation_targets",
           "columnsFrom": [
             "target_id"
@@ -1320,101 +1250,6 @@
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "sources": {
-      "name": "sources",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "fetched_at": {
-          "name": "fetched_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "hash": {
-          "name": "hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "archive_path": {
-          "name": "archive_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "activity_id": {
-          "name": "activity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "sources_hash": {
-          "name": "sources_hash",
-          "columns": [
-            "hash"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "sources_activity_id_activities_id_fk": {
-          "name": "sources_activity_id_activities_id_fk",
-          "tableFrom": "sources",
-          "tableTo": "activities",
-          "columnsFrom": [
-            "activity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -1487,171 +1322,6 @@
             "topic_id"
           ],
           "name": "target_topics_target_id_topic_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "topic_proposals": {
-      "name": "topic_proposals",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_id": {
-          "name": "target_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "topic_id": {
-          "name": "topic_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "priority": {
-          "name": "priority",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "activity_id": {
-          "name": "activity_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "topic_proposals_target_id_preparation_targets_id_fk": {
-          "name": "topic_proposals_target_id_preparation_targets_id_fk",
-          "tableFrom": "topic_proposals",
-          "tableTo": "preparation_targets",
-          "columnsFrom": [
-            "target_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "topic_proposals_topic_id_topics_id_fk": {
-          "name": "topic_proposals_topic_id_topics_id_fk",
-          "tableFrom": "topic_proposals",
-          "tableTo": "topics",
-          "columnsFrom": [
-            "topic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "topic_proposals_activity_id_activities_id_fk": {
-          "name": "topic_proposals_activity_id_activities_id_fk",
-          "tableFrom": "topic_proposals",
-          "tableTo": "activities",
-          "columnsFrom": [
-            "activity_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "topic_sources": {
-      "name": "topic_sources",
-      "columns": {
-        "topic_id": {
-          "name": "topic_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "topic_sources_topic_id_topics_id_fk": {
-          "name": "topic_sources_topic_id_topics_id_fk",
-          "tableFrom": "topic_sources",
-          "tableTo": "topics",
-          "columnsFrom": [
-            "topic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "topic_sources_source_id_sources_id_fk": {
-          "name": "topic_sources_source_id_sources_id_fk",
-          "tableFrom": "topic_sources",
-          "tableTo": "sources",
-          "columnsFrom": [
-            "source_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "topic_sources_topic_id_source_id_pk": {
-          "columns": [
-            "topic_id",
-            "source_id"
-          ],
-          "name": "topic_sources_topic_id_source_id_pk"
         }
       },
       "uniqueConstraints": {},

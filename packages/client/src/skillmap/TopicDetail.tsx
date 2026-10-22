@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { AttemptRecord, BankQuestion } from "@prepare-to-interview/shared";
 import { cx } from "../shell/ui.tsx";
+import { SkillMapHistory } from "./history-slot.tsx";
 import { fetchTopic, updateReference, useLive } from "./skillmap-api.ts";
 import { heat, Ring, SourceLine } from "./ui.tsx";
 
@@ -19,11 +20,13 @@ export function TopicDetail({
   back,
   practise,
   notify,
+  discussed,
 }: {
   topicId: string;
   back: () => void;
   practise: (topic: string) => void;
   notify: (text: string) => void;
+  discussed: () => void;
 }) {
   const { data, error, reload } = useLive(() => fetchTopic(topicId), topicId);
   const topic = data?.topic;
@@ -72,6 +75,7 @@ export function TopicDetail({
       <div className="space-y-3">
         {data?.questions.map((q) => <QuestionItem key={q.id} question={q} saved={reload} notify={notify} />)}
       </div>
+      {topic && <SkillMapHistory key={topic.id} topic={topic.name} onDiscuss={discussed} />}
     </div>
   );
 }
