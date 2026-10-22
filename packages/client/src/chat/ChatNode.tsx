@@ -32,6 +32,9 @@ function textOf(message: AppendMessage): string {
   return message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
+/** Class of the parts that drag the Chat node (its header, collapsed bar, and summary). */
+export const chatDragHandleClass = "chat-drag-handle";
+
 /**
  * Chat node: streamed Interviewer replies, stop, and the stored history, on the Candidate's agent.
  * Registered as the `chat` node type in `nodes/chat.tsx`; the header is its drag handle.
@@ -63,18 +66,18 @@ export function ChatNode({ selected }: { selected: boolean }) {
   return (
     <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-stone-300 bg-white shadow-md">
       <NodeResizer isVisible={selected} minWidth={320} minHeight={320} />
-      <header className="chat-drag-handle flex cursor-grab items-center justify-between border-b border-stone-200 px-3 py-2">
+      <header className={`${chatDragHandleClass} flex cursor-grab items-center justify-between border-b border-stone-200 px-3 py-2`}>
         <div>
-          <div className="text-sm font-medium text-stone-900">Interviewer</div>
-          <div className="text-xs text-stone-500">{agent ? `on ${agentLabels[agent]}` : "No agent chosen"}</div>
+          <div className="text-sm font-medium text-stone-900">Интервьюер</div>
+          <div className="text-xs text-stone-500">{agent ? `на ${agentLabels[agent]}` : "Агент не выбран"}</div>
         </div>
         <button
           type="button"
           className="nodrag rounded px-2 py-1 text-xs text-stone-600 hover:bg-stone-100"
-          aria-label="Agent settings"
+          aria-label="Настройки агента"
           onClick={() => setSettingsOpen((open) => !open)}
         >
-          {settingsOpen ? "Close" : "Agent"}
+          {settingsOpen ? "Закрыть" : "Агент"}
         </button>
       </header>
       {settingsOpen ? (
@@ -86,30 +89,30 @@ export function ChatNode({ selected }: { selected: boolean }) {
           <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
             <ThreadPrimitive.Viewport className="nodrag nowheel flex min-h-0 flex-1 cursor-auto flex-col gap-2 overflow-y-auto px-3 py-3 select-text">
               {chat.messages.length === 0 && (
-                <p className="m-auto text-center text-sm text-stone-500">Say hello to start preparing.</p>
+                <p className="m-auto text-center text-sm text-stone-500">Поздоровайтесь, чтобы начать подготовку.</p>
               )}
               <ThreadPrimitive.Messages>
                 {({ message }) => <ChatBubble message={byId.get(message.id)} />}
               </ThreadPrimitive.Messages>
               {chat.busy && byId.size > 0 && [...byId.values()].at(-1)?.role === "candidate" && (
-                <p className="text-xs text-stone-400">Interviewer is thinking…</p>
+                <p className="text-xs text-stone-400">Интервьюер думает…</p>
               )}
             </ThreadPrimitive.Viewport>
             {chat.error && <p className="border-t border-red-200 bg-red-50 px-3 py-1 text-xs text-red-800">{chat.error}</p>}
             <ComposerPrimitive.Root className="nodrag flex items-end gap-2 border-t border-stone-200 p-2">
               <ComposerPrimitive.Input
                 rows={1}
-                autoFocus
-                placeholder="Write to the Interviewer…"
+                data-focus-target
+                placeholder="Написать интервьюеру…"
                 className="max-h-40 min-h-9 flex-1 resize-none rounded border border-stone-300 px-2 py-1.5 text-sm outline-none focus:border-stone-500"
               />
               {chat.busy ? (
                 <ComposerPrimitive.Cancel className="rounded bg-stone-200 px-3 py-1.5 text-sm text-stone-800 hover:bg-stone-300">
-                  Stop
+                  Стоп
                 </ComposerPrimitive.Cancel>
               ) : (
                 <ComposerPrimitive.Send className="rounded bg-stone-800 px-3 py-1.5 text-sm text-white disabled:bg-stone-300">
-                  Send
+                  Отправить
                 </ComposerPrimitive.Send>
               )}
             </ComposerPrimitive.Root>
@@ -148,8 +151,8 @@ function ChatBubble({ message }: { message: ChatMessage | undefined }) {
           </ul>
         )}
       </div>
-      {message.status === "cancelled" && <span className="mt-0.5 text-xs text-stone-400">Stopped</span>}
-      {message.status === "failed" && <span className="mt-0.5 text-xs text-red-600">Not finished</span>}
+      {message.status === "cancelled" && <span className="mt-0.5 text-xs text-stone-400">Остановлено</span>}
+      {message.status === "failed" && <span className="mt-0.5 text-xs text-red-600">Не закончено</span>}
     </MessagePrimitive.Root>
   );
 }

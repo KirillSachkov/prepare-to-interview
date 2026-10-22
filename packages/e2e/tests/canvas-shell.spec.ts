@@ -151,7 +151,7 @@ test("tool, grid, Chat, Zen, and shortcuts hotkeys", async ({ page }) => {
   await page.keyboard.press("c");
   await expect(chatNode(page)).toBeVisible();
   // The shown Chat may take focus for typing; click the Canvas to leave it before more hotkeys.
-  await expect(chatNode(page)).toContainText("Coding agent");
+  await expect(chatNode(page)).toContainText("Агент для программирования");
   await page.mouse.click(emptySpot.x, emptySpot.y);
 
   await page.keyboard.press("p");
@@ -223,7 +223,7 @@ test("context menus depend on the target under the cursor", async ({ page, baseU
   await expect(grid(page)).toHaveCount(1);
 
   // The Chat node registers its own items.
-  await chatNode(page).getByText("Interviewer", { exact: true }).click({ button: "right" });
+  await chatNode(page).getByText("Интервьюер", { exact: true }).click({ button: "right" });
   const chatMenu = menu(page, "chat");
   await expect(chatMenu.getByRole("menuitem", { name: /Новая тема разговора/ })).toBeDisabled();
   await chatMenu.getByRole("menuitem", { name: "Свернуть" }).click();
@@ -233,9 +233,9 @@ test("context menus depend on the target under the cursor", async ({ page, baseU
   // Collapsing is stored in the layout store.
   await page.reload();
   await expect(chatNode(page)).toContainText("развернуть");
-  await chatNode(page).getByText("Interviewer", { exact: true }).click({ button: "right" });
+  await chatNode(page).getByText("Интервьюер", { exact: true }).click({ button: "right" });
   await menu(page, "chat").getByRole("menuitem", { name: "Развернуть" }).click();
-  await expect(chatNode(page)).toContainText("No agent chosen");
+  await expect(chatNode(page)).toContainText("Агент не выбран");
 
   // A node type without its own items falls back to the Canvas menu.
   await placeNote(baseURL!, "Menu fallback");
@@ -248,7 +248,7 @@ test("context menus depend on the target under the cursor", async ({ page, baseU
 });
 
 test("dragged node positions persist across reload", async ({ page }) => {
-  const header = chatNode(page).getByText("Interviewer", { exact: true });
+  const header = chatNode(page).getByText("Интервьюер", { exact: true });
   const before = await boxOf(chatNode(page));
   const grip = await boxOf(header);
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
@@ -281,7 +281,7 @@ test("only visible nodes render, and zoomed-out nodes show summaries", async ({ 
 
   // Zoomed far out, node types render their compact summaries.
   await page.keyboard.press("Shift+Digit1");
-  await expect(chatNode(page)).toContainText("No agent chosen");
+  await expect(chatNode(page)).toContainText("Агент не выбран");
   const zoomPercent = async () => parseInt(await zoomLabel(page).innerText());
   while ((await zoomPercent()) >= 45) {
     const current = await zoomPercent();
@@ -289,5 +289,5 @@ test("only visible nodes render, and zoomed-out nodes show summaries", async ({ 
     await expect.poll(zoomPercent).toBeLessThan(current);
   }
   await expect(chatNode(page)).toHaveText("Чат");
-  await expect(chatNode(page)).not.toContainText("No agent chosen");
+  await expect(chatNode(page)).not.toContainText("Агент не выбран");
 });

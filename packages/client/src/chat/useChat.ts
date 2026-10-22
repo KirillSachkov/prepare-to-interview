@@ -47,7 +47,7 @@ export function useChat(): ChatState {
             );
           } else if (event.type === "chat.busy") setBusy(event.busy);
         },
-        onDisconnect: () => setError("No live connection to the app."),
+        onDisconnect: () => setError("Нет связи с приложением."),
       }),
     [],
   );

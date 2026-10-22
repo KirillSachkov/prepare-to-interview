@@ -39,7 +39,7 @@ export async function openCanvas(page: Page): Promise<void> {
   const chat = page.locator('.react-flow__node[data-id="chat"]');
   await expect(chat).toBeVisible();
   // With no agent chosen the Chat settles on its agent settings; until then its composer may hold focus.
-  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText("Coding agent");
+  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText("Агент для программирования");
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });
