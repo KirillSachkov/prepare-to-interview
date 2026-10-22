@@ -140,8 +140,8 @@ describe("Chat with the Interviewer", () => {
     expect(driver.sessions[0]!.config.persona).toBe(fs.readFileSync(path.join(defaultContentDir, "persona.md"), "utf8"));
     expect(driver.sessions[0]!.config).toMatchObject({
       allowedBuiltins: ["web_fetch", "web_search"],
-      // The Chat's tool calls carry a marker header; hidden sessions do not.
-      mcpServers: [{ ...server.mcpServer, headers: [...server.mcpServer.headers, { name: "X-Interview-Caller", value: "chat" }] }],
+      // The Chat's MCP server carries its own role token, never the app token (access.test.ts).
+      mcpServers: [{ ...server.mcpServer, headers: [{ name: "Authorization", value: expect.not.stringContaining(server.token) as string }] }],
     });
   });
 

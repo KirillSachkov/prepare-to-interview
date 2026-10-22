@@ -1,12 +1,6 @@
 import { z } from "zod";
 
-/**
- * Header that marks MCP requests from the Chat's Agent session; hidden sessions such as the Grader
- * or Research do not send it.
- */
-export const callerHeader = "X-Interview-Caller";
-
-/** Who is calling a tool, from the request. */
+/** Who is calling a tool, from the role token of the request (see `createApp`). */
 export interface ToolContext {
   /** True for the Chat's Agent session. */
   fromChat: boolean;

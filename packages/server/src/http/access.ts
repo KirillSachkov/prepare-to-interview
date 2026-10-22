@@ -3,7 +3,10 @@ import type { MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { tokenQueryParam } from "@prepare-to-interview/shared";
 
-const cookieName = "pti_token";
+/** The cookie holding the token; it names the port, since browsers share cookies across the ports of a host. */
+function cookieName(host: string): string {
+  return `pti_token_${host.split(":").at(-1) ?? ""}`;
+}
 
 /**
  * DNS-rebinding guard: only requests addressed to the loopback host and port pass, and a
@@ -25,21 +28,32 @@ export function hostGuard(allowedHosts: () => ReadonlySet<string>): MiddlewareHa
  * receives after opening the tokenized URL once.
  */
 export function tokenGuard(token: string): MiddlewareHandler {
-  const matches = (candidate: string | undefined) => candidate !== undefined && safeEqual(candidate, token);
+  const matches = (candidate: string | undefined) => sameToken(candidate, token);
   return async (c, next) => {
-    const bearer = c.req.header("authorization")?.match(/^Bearer (.+)$/)?.[1];
-    if (matches(bearer) || matches(getCookie(c, cookieName))) {
+    const bearer = bearerToken(c.req.header("authorization"));
+    // hostGuard runs first, so the host names the app's own port.
+    const cookie = cookieName(c.req.header("host") ?? "");
+    if (matches(bearer) || matches(getCookie(c, cookie))) {
       await next();
       return;
     }
     if (c.req.method === "GET" && matches(c.req.query(tokenQueryParam))) {
-      setCookie(c, cookieName, token, { httpOnly: true, sameSite: "Strict", path: "/" });
+      setCookie(c, cookie, token, { httpOnly: true, sameSite: "Strict", path: "/" });
       const url = new URL(c.req.url);
       url.searchParams.delete(tokenQueryParam);
       return c.redirect(url.pathname + url.search, 302);
     }
     return c.text("Unauthorized: open the URL printed by `pnpm start`.", 401);
   };
+}
+
+export function bearerToken(header: string | undefined): string | undefined {
+  return header?.match(/^Bearer (.+)$/)?.[1];
+}
+
+/** Whether `candidate` is `token`, compared in constant time. */
+export function sameToken(candidate: string | undefined, token: string): boolean {
+  return candidate !== undefined && safeEqual(candidate, token);
 }
 
 function originHost(origin: string): string {

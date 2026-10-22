@@ -6,6 +6,7 @@ import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
   apiPaths,
+  bankPaths,
   cardPaths,
   maxAnswerLength,
   practiceSetPaths,
@@ -29,7 +30,7 @@ import type { PracticeRunner } from "../interviewer/practice-runner.ts";
 import type { EventBus } from "../events.ts";
 import type { McpHandler } from "../mcp/handler.ts";
 import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
-import { hostGuard, tokenGuard } from "./access.ts";
+import { bearerToken, hostGuard, sameToken, tokenGuard } from "./access.ts";
 import { registerBankRoutes, type BankRouteDeps } from "./bank-routes.ts";
 import { mockRoutes } from "./mock-routes.ts";
 
@@ -46,7 +47,15 @@ export interface AppDeps {
   settings: Settings;
   detectAgents: AgentDetector;
   events: EventBus;
+  /** MCP endpoint of the Chat's Agent session, with every tool. */
   mcp: McpHandler;
+  /** MCP endpoint of hidden Research sessions, with only the Research tools. */
+  researchMcp: McpHandler;
+  /**
+   * Per-role tokens of the MCP endpoints: each Agent session gets only its own role's token, which
+   * opens only that endpoint (not the REST API) and determines the caller's role.
+   */
+  mcpTokens: { chat: string; research: string };
   /** The Skill map, the Question bank, the Proposed queue, and search. */
   bankRoutes: Omit<BankRouteDeps, "chat">;
   /** Directory with the built client (`index.html` and assets). */
@@ -64,10 +73,21 @@ const layoutUpdateRequest = z.strictObject({
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
   app.use("*", hostGuard(deps.allowedHosts));
+  // Registered before the app token guard: each MCP endpoint takes its role token or the app token
+  // (the Candidate's own scripts), and the role comes from the token alone.
+  const mcpRoute = (route: string, handler: McpHandler, roleToken: string, role: "chat" | "research") => {
+    app.post(route, (c) => {
+      const bearer = bearerToken(c.req.header("authorization"));
+      if (sameToken(bearer, roleToken)) return handler(c.req.raw, { fromChat: role === "chat" });
+      if (sameToken(bearer, deps.token)) return handler(c.req.raw, { fromChat: false });
+      return c.text("Unauthorized: use the MCP token the app gave this Agent session.", 401);
+    });
+  };
+  mcpRoute(apiPaths.mcp, deps.mcp, deps.mcpTokens.chat, "chat");
+  mcpRoute(bankPaths.researchMcp, deps.researchMcp, deps.mcpTokens.research, "research");
   app.use("*", tokenGuard(deps.token));
 
-  app.post(apiPaths.mcp, (c) => deps.mcp(c.req.raw));
-  app.on(["GET", "DELETE"], apiPaths.mcp, (c) => c.text("Stateless MCP endpoint: use POST", 405));
+  app.on(["GET", "DELETE"], [apiPaths.mcp, bankPaths.researchMcp], (c) => c.text("Stateless MCP endpoint: use POST", 405));
 
   app.get(apiPaths.canvas, (c) => c.json(deps.canvas.snapshot()));
 

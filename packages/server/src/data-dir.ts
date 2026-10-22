@@ -10,10 +10,13 @@ export interface DataDir {
 
 /**
  * Prepares the data directory and returns the access token, generating it on first start.
- * The directory and the token file are readable by the owner only.
+ * The directory and the token file are readable by the owner only (the database files too, see
+ * `openDatabase`).
  */
 export function openDataDir(root: string): DataDir {
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  // An existing directory may have been created with looser permissions.
+  fs.chmodSync(root, 0o700);
   return { root, databaseFile: path.join(root, "app.db"), token: loadOrCreateToken(path.join(root, "token")) };
 }
 

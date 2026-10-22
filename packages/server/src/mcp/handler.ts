@@ -8,12 +8,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { DomainError } from "../domain/domain.ts";
-import { callerHeader, type ToolContext, type ToolDefinition } from "./tool.ts";
+import type { ToolContext, ToolDefinition } from "./tool.ts";
 
 /** Server name agents see as the tool namespace (`mcp__interview__…`, `interview_…`). */
 export const mcpServerName = "interview";
 
-export type McpHandler = (request: Request) => Promise<Response>;
+/** Serves one MCP request; the caller's role comes from its token, which the HTTP route checked. */
+export type McpHandler = (request: Request, context: ToolContext) => Promise<Response>;
 
 /**
  * Stateless Streamable HTTP: every request gets a fresh MCP server and transport, so agents can
@@ -23,10 +24,9 @@ export function createMcpHandler(tools: readonly ToolDefinition[], version: stri
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const listing = tools.map(describeTool);
 
-  return async (request) => {
+  return async (request, context) => {
     const server = new McpServer({ name: mcpServerName, version }, { capabilities: { tools: {} } });
     server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: listing }));
-    const context: ToolContext = { fromChat: request.headers.get(callerHeader) === "chat" };
     server.server.setRequestHandler(CallToolRequestSchema, (call) =>
       callTool(byName, call.params.name, call.params.arguments, context),
     );

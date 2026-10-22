@@ -3,7 +3,11 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { apiPaths } from "@prepare-to-interview/shared";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { apiPaths, bankPaths } from "@prepare-to-interview/shared";
+import type { AgentDriver, SessionConfig } from "../src/agent/driver.ts";
+import { FakeDriver } from "../src/agent/fake-driver.ts";
 import { resolveDataDir } from "../src/config.ts";
 import type { RunningServer } from "../src/server.ts";
 import { authHeaders, makeTempDirs, startTestServer, testIndexHtml } from "./helpers.ts";
@@ -76,6 +80,8 @@ describe("access to the app server", () => {
     expect(first.status).toBe(302);
     expect(first.headers.get("location")).toBe("/");
     const cookie = first.headers.get("set-cookie") ?? "";
+    // Cookies ignore the port: another instance on another port keeps its own cookie.
+    expect(cookie.startsWith(`pti_token_${server.port}=`)).toBe(true);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=Strict/i);
 
@@ -113,6 +119,47 @@ describe("access to the app server", () => {
   });
 });
 
+describe("MCP roles", () => {
+  it("gives each Agent session role its own token and derives the role from it, not from a header", async () => {
+    const dirs = makeTempDirs();
+    cleanups.push(dirs.cleanup);
+    let driver: FakeDriver | undefined;
+    const { server } = await startTestServer(dirs, {
+      drivers: (): AgentDriver => (driver ??= new FakeDriver([[{ event: { type: "message_chunk", text: "Привет." } }]])),
+      detectAgents: () => [{ id: "claude", label: "Claude Code", installed: true, detail: "/bin/claude" }],
+    });
+    cleanups.push(() => server.close());
+    const rest = (p: string, init: RequestInit = {}) => fetch(new URL(p, server.url), init);
+    const json = { ...authHeaders(server), "Content-Type": "application/json" };
+    await rest(apiPaths.agentSettings, { method: "PUT", headers: json, body: JSON.stringify({ agent: "claude" }) });
+    await rest(apiPaths.chatMessages, { method: "POST", headers: json, body: JSON.stringify({ text: "Привет" }) });
+    await expect.poll(() => driver?.sessions.length).toBe(1);
+    const chatConfig: SessionConfig = driver!.sessions[0]!.config;
+    const chatServer = chatConfig.mcpServers[0]!;
+    const chatToken = chatServer.headers.find((h) => h.name === "Authorization")!.value;
+    expect(chatToken).not.toBe(`Bearer ${server.token}`);
+    expect(chatServer.headers.map((h) => h.name)).toEqual(["Authorization"]);
+
+    // The Chat's token reaches the Chat's MCP tools and acts as the Chat; it opens nothing else.
+    const connect = async (url: string, headers: Record<string, string>) => {
+      const client = new Client({ name: "probe", version: "0.0.0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } }));
+      cleanups.push(() => client.close());
+      return client;
+    };
+    const asChat = await connect(chatServer.url, { Authorization: chatToken });
+    const ended = await asChat.callTool({ name: "end_session", arguments: { summary: "Probe." } });
+    expect((ended.content as { text: string }[])[0]!.text).not.toMatch(/Only the Chat's Agent session/);
+    expect((await rest(apiPaths.canvas, { headers: { Authorization: chatToken } })).status).toBe(401);
+    expect((await rest(bankPaths.researchMcp, { method: "POST", headers: { Authorization: chatToken }, body: "{}" })).status).toBe(401);
+
+    // The app token with the old marker header is not the Chat.
+    const spoofed = await connect(server.mcpServer.url, { ...authHeaders(server), "X-Interview-Caller": "chat" });
+    const refused = await spoofed.callTool({ name: "end_session", arguments: { summary: "Spoofed." } });
+    expect((refused.content as { text: string }[])[0]!.text).toMatch(/^Only the Chat's Agent session can end itself\./);
+  });
+});
+
 describe("data directory", () => {
   it("replaces an empty token file left behind by a crash", async () => {
     const dirs = makeTempDirs();
@@ -123,6 +170,20 @@ describe("data directory", () => {
     expect(server.token.length).toBeGreaterThanOrEqual(32);
     expect(fs.readFileSync(path.join(dirs.dataDir, "token"), "utf8").trim()).toBe(server.token);
     expect(fs.readdirSync(dirs.dataDir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
+  });
+
+  it("keeps the data directory and the database files private, also when they already exist", async () => {
+    const dirs = makeTempDirs();
+    cleanups.push(dirs.cleanup);
+    fs.mkdirSync(dirs.dataDir, { recursive: true, mode: 0o755 });
+    fs.chmodSync(dirs.dataDir, 0o755);
+    fs.writeFileSync(path.join(dirs.dataDir, "app.db"), "", { mode: 0o644 });
+    fs.chmodSync(path.join(dirs.dataDir, "app.db"), 0o644);
+    const server = await start(dirs);
+    await fetch(new URL(apiPaths.canvas, server.url), { headers: authHeaders(server) });
+    const mode = (file: string) => fs.statSync(path.join(dirs.dataDir, file)).mode & 0o777;
+    expect(mode(".")).toBe(0o700);
+    for (const file of ["app.db", "app.db-wal", "app.db-shm"]) expect([file, mode(file)]).toEqual([file, 0o600]);
   });
 
   it("defaults to ~/.prepare-to-interview", () => {

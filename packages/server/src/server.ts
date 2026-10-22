@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -59,7 +60,7 @@ export interface RunningServer {
   url: string;
   port: number;
   token: string;
-  /** How an Agent session reaches the app's MCP tools. */
+  /** How the Candidate's own scripts reach the app's MCP tools with the app token; not as the Chat. */
   mcpServer: McpServerConfig;
   close: () => Promise<void>;
 }
@@ -81,6 +82,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   const mockInterviews = new MockInterviews({ db, domain, practice, now });
   const contentDir = options.interviewerDir ?? defaultContentDir;
   let allowedHosts: ReadonlySet<string> = new Set();
+  // Per-role MCP tokens, new on every start; Agent sessions get them with their session config.
+  const mcpTokens = { chat: randomToken(), research: randomToken() };
   // Filled once the server listens and its URL is known.
   const mcpServers: McpServerConfig[] = [];
   const researchMcpServers: McpServerConfig[] = [];
@@ -152,10 +155,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       [...createTools({ domain, practice, interviewer, continuity, mock }), ...createResearchTools(researchDeps)],
       appVersion,
     ),
+    researchMcp: createMcpHandler(createResearchTools(researchDeps, { session: true }), appVersion),
+    mcpTokens,
     bankRoutes: {
       bank,
       search,
-      researchMcp: createMcpHandler(createResearchTools(researchDeps, { session: true }), appVersion),
       mockRunning: () => mockInterviews.running() !== null,
     },
     clientDir: options.clientDir ?? defaultClientDir,
@@ -181,8 +185,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     url: origin + apiPaths.mcp,
     headers: [{ name: "Authorization", value: `Bearer ${dataDir.token}` }],
   };
-  mcpServers.push(mcpServer);
-  researchMcpServers.push({ ...mcpServer, url: origin + bankPaths.researchMcp });
+  // Agent sessions never get the app token: it opens the whole REST API.
+  mcpServers.push({ ...mcpServer, headers: [{ name: "Authorization", value: `Bearer ${mcpTokens.chat}` }] });
+  researchMcpServers.push({ ...mcpServer, url: origin + bankPaths.researchMcp, headers: [{ name: "Authorization", value: `Bearer ${mcpTokens.research}` }] });
 
   return {
     url: `${origin}/?${tokenQueryParam}=${dataDir.token}`,
@@ -220,6 +225,10 @@ function acpDrivers(dataRoot: string): DriverProvider {
         ...(agent === "opencode" && { opencodeCommand: findOnPath("opencode") }),
       }),
     );
+}
+
+function randomToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
 }
 
 function cachedDrivers(create: DriverProvider) {
