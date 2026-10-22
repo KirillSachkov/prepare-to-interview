@@ -98,7 +98,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     practiceInProgress: () => practice.unfinished() !== null,
     applyBankAction: () => (action) => {
       if (action.kind === "auto_approve") late.researcher?.approveBatch(action.batchId);
-      else bank.review({ action: action.action, ...(action.batchId && { batchId: action.batchId }), ...(action.all && { all: true }), ...(action.questions && { questions: action.questions }), ...(action.topics && { topics: action.topics }) });
+      else bank.review(action.request);
     },
     now,
   });

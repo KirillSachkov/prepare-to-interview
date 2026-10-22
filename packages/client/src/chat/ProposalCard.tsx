@@ -5,7 +5,7 @@ import type { ReviewProposalView } from "@prepare-to-interview/shared";
 import { answerProposal } from "./chat-api.ts";
 
 const labels = {
-  memory: { accept: "Сохранить", decline: "Не сохранять", accepted: "Сохранено", declined: "Не сохранено", region: "Предложение запомнить" },
+  profile: { accept: "Сохранить", decline: "Не сохранять", accepted: "Сохранено", declined: "Не сохранено", region: "Предложение запомнить" },
   bank: { accept: "Подтвердить", decline: "Отменить", accepted: "Подтверждено", declined: "Отменено", region: "Подтверждение изменения банка" },
 } as const;
 

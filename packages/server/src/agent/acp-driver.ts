@@ -5,7 +5,7 @@ import { sessionStateUri, type AgentId } from "@prepare-to-interview/shared";
 import type { AgentDriver, AgentEvent, AgentSession, SessionConfig, TurnInput, TurnResult } from "./driver.ts";
 import { AgentError, toAgentError } from "./errors.ts";
 import { matchMcpTool } from "./tool-names.ts";
-import { inertJson } from "./inert-json.ts";
+import { inertJson } from "./context-blocks.ts";
 
 /** How to start an agent process. */
 export interface LaunchSpec {

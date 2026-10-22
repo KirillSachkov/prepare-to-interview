@@ -263,10 +263,9 @@ export class Bank {
     const counts = this.#db.transaction((tx) => {
       const proposedTopics = tx.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
       const proposedQuestions = tx.select().from(questions).where(eq(questions.status, "proposed")).all();
-      const inBatch = (activityId: string | null) =>
-        request.all === true || (request.batchId !== undefined && activityId === request.batchId);
-      const topicIds = new Set(proposedTopics.filter((t) => inBatch(t.activityId) || request.topics?.includes(t.id)).map((t) => t.id));
-      const questionIds = new Set(proposedQuestions.filter((q) => inBatch(q.activityId) || request.questions?.includes(q.id)).map((q) => q.id));
+      const picked = pick(request, proposedTopics, proposedQuestions);
+      const topicIds = new Set(picked.topics.map((t) => t.id));
+      const questionIds = new Set(picked.questions.map((q) => q.id));
       if (request.action === "approve") {
         for (const q of proposedQuestions) {
           if (!questionIds.has(q.id)) continue;
@@ -288,6 +287,21 @@ export class Bank {
     const proposed = this.publish();
     if (request.action === "approve" && counts) this.#domain.publishTargets();
     return { approved: request.action === "approve" ? counts : 0, rejected: request.action === "reject" ? counts : 0, proposed };
+  }
+
+  /**
+   * The Proposed items a review request picks now, before approving a Question pulls in its
+   * Topic's proposal: what the Candidate confirms when the Interviewer asks to review.
+   */
+  selection(request: ReviewRequest): { topics: { id: string; name: string }[]; questions: { id: string; prompt: string }[] } {
+    const proposedTopics = this.#db.select().from(topicProposals).where(eq(topicProposals.status, "proposed")).all();
+    const proposedQuestions = this.#db.select().from(questions).where(eq(questions.status, "proposed")).all();
+    const picked = pick(request, proposedTopics, proposedQuestions);
+    const names = new Map(this.#db.select({ id: topics.id, name: topics.name }).from(topics).all().map((t) => [t.id, t.name]));
+    return {
+      topics: picked.topics.map((t) => ({ id: t.id, name: names.get(t.topicId) ?? "" })),
+      questions: picked.questions.map((q) => ({ id: q.id, prompt: q.prompt })),
+    };
   }
 
   // Skill map and the bank
@@ -421,7 +435,11 @@ export class Bank {
   #approveTopic(tx: Tx, proposal: typeof topicProposals.$inferSelect): void {
     tx.update(topicProposals).set({ status: "approved" }).where(eq(topicProposals.id, proposal.id)).run();
     const exists = tx.select().from(targetTopics).where(and(eq(targetTopics.targetId, proposal.targetId), eq(targetTopics.topicId, proposal.topicId))).get();
-    if (exists) return;
+    if (exists) {
+      // The Topic joined the target meanwhile, such as through practice; the approved priority wins.
+      tx.update(targetTopics).set({ priority: proposal.priority }).where(and(eq(targetTopics.targetId, proposal.targetId), eq(targetTopics.topicId, proposal.topicId))).run();
+      return;
+    }
     const last = tx.select({ last: max(targetTopics.position) }).from(targetTopics).where(eq(targetTopics.targetId, proposal.targetId)).get()?.last ?? -1;
     tx.insert(targetTopics).values({ targetId: proposal.targetId, topicId: proposal.topicId, priority: proposal.priority, position: last + 1 }).run();
   }
@@ -578,3 +596,15 @@ function toAttemptRecord(a: typeof attempts.$inferSelect): AttemptRecord {
   };
 }
 
+/** The Proposed Topics and Questions a review request names: picked ones, a whole Research batch, or everything. */
+function pick<T extends { id: string; activityId: string | null }, Q extends { id: string; activityId: string | null }>(
+  request: ReviewRequest,
+  proposedTopics: T[],
+  proposedQuestions: Q[],
+): { topics: T[]; questions: Q[] } {
+  const inBatch = (activityId: string | null) => request.all === true || (request.batchId !== undefined && activityId === request.batchId);
+  return {
+    topics: proposedTopics.filter((t) => inBatch(t.activityId) || request.topics?.includes(t.id)),
+    questions: proposedQuestions.filter((q) => inBatch(q.activityId) || request.questions?.includes(q.id)),
+  };
+}

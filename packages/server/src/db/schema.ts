@@ -7,6 +7,7 @@ import {
   revealModes,
   topicPriorities,
   type ChatToolCall,
+  type ReviewRequest,
 } from "@prepare-to-interview/shared";
 
 export { cardStatuses, practiceSetKinds, questionTypes, revealModes, topicPriorities };
@@ -454,14 +455,8 @@ export interface ProposedDecision {
  * without review. The Chat reads web pages, so its word alone never changes the bank.
  */
 export type BankAction =
-  | {
-      kind: "review";
-      action: "approve" | "reject";
-      batchId?: string;
-      all?: boolean;
-      questions?: string[];
-      topics?: string[];
-    }
+  /** Approving or rejecting the Proposed items picked when the Interviewer asked, by id; `items` is what the Candidate saw. */
+  | { kind: "review"; request: ReviewRequest; items: string[] }
   | { kind: "auto_approve"; batchId: string };
 
 /**

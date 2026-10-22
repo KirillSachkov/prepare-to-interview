@@ -147,7 +147,7 @@ The single shared workspace showing only current items: active Practice sets, th
 _Avoid_: Board, dashboard
 
 **Control panel**:
-The fixed area over the Canvas with Preparation targets, overall readiness, and actions.
+The fixed area over the Canvas with Preparation targets, their Readiness, and actions.
 _Avoid_: Sidebar, HUD
 
 **Skill map**:

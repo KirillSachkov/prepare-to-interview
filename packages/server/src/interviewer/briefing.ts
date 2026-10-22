@@ -5,7 +5,7 @@ import type { Database } from "../db/database.ts";
 import { activities, agentSessions, chatMessages } from "../db/schema.ts";
 import { masteryPercent, weakMastery } from "../domain/arithmetic.ts";
 import type { Domain } from "../domain/domain.ts";
-import { appContext } from "../agent/inert-json.ts";
+import { appContext } from "../agent/context-blocks.ts";
 
 /** Upper bound of the Briefing text the agent receives, in characters. */
 export const maxBriefingChars = 6000;

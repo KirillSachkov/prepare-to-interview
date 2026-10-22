@@ -19,7 +19,7 @@ import {
 import { DomainError, localDate, type Activity, type Domain } from "../domain/domain.ts";
 import type { Settings } from "../settings/settings.ts";
 import { assembleBriefing } from "./briefing.ts";
-import { appContext } from "../agent/inert-json.ts";
+import { appContext } from "../agent/context-blocks.ts";
 
 /** Activities whose completion ends the Agent session after a review (ADR-0002). */
 export const boundaryActivities: readonly ActivityKind[] = ["onboarding", "research", "practice_set", "mock_interview"];
@@ -175,8 +175,8 @@ export class Continuity implements SessionPolicy {
   proposal(proposalId: string): ReviewProposalView | undefined {
     const row = this.#db.select().from(reviewProposals).where(eq(reviewProposals.id, proposalId)).get();
     if (!row) return undefined;
-    if (row.bankAction) return { id: row.id, kind: "bank", status: row.status, items: [describeBankAction(row.bankAction)] };
-    return { id: row.id, kind: "memory", status: row.status, items: describeProposal(row.profile, row.decisions) };
+    if (row.bankAction) return { id: row.id, kind: "bank", status: row.status, items: describeBankAction(row.bankAction) };
+    return { id: row.id, kind: "profile", status: row.status, items: describeProposal(row.profile, row.decisions) };
   }
 
   /** The Candidate confirmed: the profile and Decision log updates are saved, or the bank change applied. */
@@ -299,13 +299,10 @@ function reviewRequest(activity: Activity): string {
 }
 
 /** The bank change in Russian, as the Candidate confirms it. */
-function describeBankAction(action: BankAction): string {
-  if (action.kind === "auto_approve") return "Добавить в банк без проверки всё, что предложит запущенное исследование.";
-  const verb = action.action === "approve" ? "Одобрить" : "Отклонить";
-  if (action.all) return `${verb} все предложенные темы и вопросы.`;
-  if (action.batchId) return `${verb} всё, что предложило исследование.`;
-  const parts = [action.questions?.length && `вопросов — ${action.questions.length}`, action.topics?.length && `тем — ${action.topics.length}`].filter(Boolean).join(", ");
-  return `${verb} выбранные предложения (${parts}).`;
+function describeBankAction(action: BankAction): string[] {
+  if (action.kind === "auto_approve") return ["Добавить в банк без проверки всё, что предложит запущенное исследование."];
+  const lead = action.request.action === "approve" ? "Одобрить и добавить в банк:" : "Отклонить:";
+  return [lead, ...action.items];
 }
 
 /** One Russian line per proposed change, as the Candidate confirms them. */

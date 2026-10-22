@@ -477,11 +477,28 @@ describe("Research Activity", () => {
     await expect.poll(async () => (await chat()).busy).toBe(false);
     confirmations = (await chat()).messages.flatMap((m) => (m.proposal ? [m.proposal] : []));
     expect(confirmations).toHaveLength(2);
+    // The confirmation names exactly the items picked when the Interviewer asked.
+    expect(confirmations[1]!.items).toEqual(["Одобрить и добавить в банк:", "Вопрос: Что такое consumer group?"]);
     expect((await proposed(h)).count).toBe(1);
     expect((await api(h.server, proposalPaths.decline(confirmations[1]!.id))).status).toBe(200);
     expect((await proposed(h)).count).toBe(1);
     // The Candidate's own scripts with the app token, like the UI, act directly.
     expect((await h.call("review_proposed", { action: "approve", all: true })).data).toMatchObject({ approved: 1 });
+  });
+
+  it("keeps the priority the Candidate approves for a Topic that joined the target through practice meanwhile", async () => {
+    const h = await withTarget();
+    const sourceId = await archive(h, "Kafka: партиции и группы.");
+    await h.call("propose_questions", { topics: [{ name: "Kafka", priority: "high", source_ids: [sourceId] }] });
+    const quiz = await h.call("place_practice_set", {
+      title: "Kafka",
+      kind: "quiz",
+      cards: [{ topic: "Kafka", prompt: "Kafka хранит порядок внутри партиции?", type: "single_choice", options: [{ text: "Да", correct: true }, { text: "Нет", correct: false }] }],
+    });
+    expect(quiz.isError, quiz.text).toBe(false);
+    expect((await skillMap(h)).topics.find((t) => t.name === "Kafka")?.priority).toBe("medium");
+    expect((await h.call("review_proposed", { action: "approve", all: true })).isError).toBe(false);
+    expect((await skillMap(h)).topics.find((t) => t.name === "Kafka")?.priority).toBe("high");
   });
 
   it("tells the Candidate when Research cannot start without an agent session", async () => {

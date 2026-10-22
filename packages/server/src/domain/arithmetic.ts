@@ -114,8 +114,8 @@ export function masteryPercent(mastery: number | null): number | null {
   return mastery === null ? null : Math.round(mastery * 100);
 }
 
-/** A Topic whose Mastery is below this needs repetition: anything short of the strong band. */
-export const weakMastery = masteryBands.strong;
+/** A Topic whose Mastery is below this is weak and needs repetition: anything short of the high band. */
+export const weakMastery = masteryBands.high;
 
 /** The local calendar date of an instant as `YYYY-MM-DD`. */
 export function localDate(date: Date): string {

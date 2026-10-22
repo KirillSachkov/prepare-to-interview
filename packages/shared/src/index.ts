@@ -84,16 +84,16 @@ export const practiceSetPaths = {
 } as const;
 
 /**
- * Mastery bands, the one place both the server (weak Topics in the Briefing) and the UI (colours,
- * labels) read: below `weak` a Topic is weak, from `strong` it is mastered, in between in progress.
+ * Mastery bands, the one place both the server (Topics that need work in the Briefing) and the UI
+ * (colours, labels) read: `medium` and `high` are where those bands start.
  */
-export const masteryBands = { weak: 0.4, strong: 0.7 } as const;
-export type MasteryBand = "untouched" | "weak" | "learning" | "strong";
+export const masteryBands = { medium: 0.4, high: 0.7 } as const;
+export type MasteryBand = "untouched" | "low" | "medium" | "high";
 
 export function masteryBand(mastery: number | null): MasteryBand {
   if (mastery === null) return "untouched";
-  if (mastery < masteryBands.weak) return "weak";
-  return mastery < masteryBands.strong ? "learning" : "strong";
+  if (mastery < masteryBands.medium) return "low";
+  return mastery < masteryBands.high ? "medium" : "high";
 }
 
 export const topicPriorities = ["high", "medium", "low"] as const;
@@ -306,7 +306,7 @@ export interface ChatMessage {
  */
 export interface ReviewProposalView {
   id: string;
-  kind: "memory" | "bank";
+  kind: "profile" | "bank";
   status: "pending" | "accepted" | "declined";
   /** One line per proposed change, in Russian labels. */
   items: string[];

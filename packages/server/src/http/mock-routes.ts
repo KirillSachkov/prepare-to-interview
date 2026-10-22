@@ -5,7 +5,7 @@ import { apiPaths, mockDurationLimits, mockPaths, type MockRequest } from "@prep
 import type { Chat } from "../chat/chat.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
 // Called while createApp builds the routes, after app.ts has finished loading.
-import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./app.ts";
+import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./respond.ts";
 
 const mockRequest = z.strictObject({
   durationMinutes: z.number().int().min(mockDurationLimits.min).max(mockDurationLimits.max),

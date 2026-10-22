@@ -5,7 +5,7 @@ import { bankPaths, searchKinds, type ReviewRequest, type SearchResponse } from 
 import type { Chat } from "../chat/chat.ts";
 import type { Bank } from "../domain/bank.ts";
 import type { Search } from "../search/search.ts";
-import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./app.ts";
+import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./respond.ts";
 
 export interface BankRouteDeps {
   bank: Bank;

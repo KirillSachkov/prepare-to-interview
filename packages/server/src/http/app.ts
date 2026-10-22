@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { upgradeWebSocket } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import {
   apiPaths,
@@ -22,7 +22,7 @@ import type { AgentDetector } from "../agent/detect.ts";
 import { UnknownNodeError, type Canvas } from "../canvas/canvas.ts";
 import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import { revealModes } from "../db/schema.ts";
-import { DomainError, type Domain } from "../domain/domain.ts";
+import type { Domain } from "../domain/domain.ts";
 import type { Practice } from "../domain/practice.ts";
 import type { Continuity } from "../interviewer/continuity.ts";
 import type { MockRunner } from "../interviewer/mock-runner.ts";
@@ -33,6 +33,7 @@ import { agentSettingsUpdate, type Settings } from "../settings/settings.ts";
 import { bearerToken, hostGuard, sameToken, tokenGuard } from "./access.ts";
 import { registerBankRoutes, type BankRouteDeps } from "./bank-routes.ts";
 import { mockRoutes } from "./mock-routes.ts";
+import { chatBusyMessage, domainResult, idParam, readJson, sendToChat } from "./respond.ts";
 
 export interface AppDeps {
   token: string;
@@ -267,39 +268,3 @@ export const discussMessage = "Обсудим эту карточку.";
 
 /** What the Candidate says in the Chat when they press «Новая цель». */
 export const newTargetMessage = "Хочу добавить новую цель подготовки.";
-
-export const chatBusyMessage = "Интервьюер ещё отвечает: дождитесь ответа или остановите его.";
-
-/** Answers 202 with the Candidate's Chat message, or 409 while the Interviewer is replying. */
-export function sendToChat(send: () => unknown): Response {
-  try {
-    return Response.json({ message: send() }, { status: 202 });
-  } catch (error) {
-    if (error instanceof ChatBusyError) return Response.json({ error: chatBusyMessage }, { status: 409 });
-    throw error;
-  }
-}
-
-/** Answers a refused domain change with its Russian text: 404 for an unknown record, 400 otherwise. */
-export function domainResult(respond: () => Response): Response {
-  try {
-    return respond();
-  } catch (error) {
-    if (!(error instanceof DomainError)) throw error;
-    const message = error.candidateMessage ?? "приложение отклонило запрос.";
-    return Response.json({ error: message }, { status: error.kind === "not_found" ? 404 : 400 });
-  }
-}
-
-/** The `:id` of a Card or Practice set route. */
-export function idParam(c: Context): string {
-  return c.req.param("id") ?? "";
-}
-
-export async function readJson(request: Request): Promise<unknown> {
-  try {
-    return await request.json();
-  } catch {
-    return undefined;
-  }
-}

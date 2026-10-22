@@ -14,7 +14,7 @@ import type { Bank } from "../domain/bank.ts";
 import { DomainError, type Activity, type Domain } from "../domain/domain.ts";
 import type { ResearchArchive } from "../research/archive.ts";
 import type { Settings } from "../settings/settings.ts";
-import { appContext, inertJson } from "../agent/inert-json.ts";
+import { appContext, inertJson } from "../agent/context-blocks.ts";
 
 export interface ResearchRequest {
   /** What to look into, in the Candidate's words. */

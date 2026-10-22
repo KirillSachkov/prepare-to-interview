@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type SyntheticEvent } from "react";
 import type { TopicProgress } from "@prepare-to-interview/shared";
 import { fetchProgress } from "../practice/practice-api.ts";
-import { heat as skillHeat } from "../skillmap/ui.tsx";
+import { heat } from "../skillmap/ui.tsx";
 import { settingsSections } from "../settings/sections.ts";
 import type { CommandGroup, Commands } from "./commands.ts";
 import { modLabel } from "./hotkeys.ts";
@@ -180,7 +180,7 @@ export function TopicPracticeDialog({ close, choose }: { close: () => void; choo
       <div className="max-h-80 space-y-0.5 overflow-y-auto">
         {topics?.map((topic) => (
           <MenuRow key={topic.name} hint={topic.mastery === null ? "не начата" : `${Math.round(topic.mastery * 100)}%`} onClick={() => choose(topic.name)}>
-            <span className="mr-2 h-2 w-2 shrink-0 rounded-full" style={{ background: heat(topic.mastery) }} />
+            <span className="mr-2 h-2 w-2 shrink-0 rounded-full" style={{ background: heat(topic.mastery).stroke }} />
             {topic.name}
             {topic.due > 0 && <span className="ml-2 text-[11px] text-stone-400">повторить {topic.due}</span>}
           </MenuRow>
@@ -190,7 +190,3 @@ export function TopicPracticeDialog({ close, choose }: { close: () => void; choo
   );
 }
 
-/** Mastery colour: grey for a never-touched Topic, then red, amber, green. */
-function heat(mastery: number | null): string {
-  return skillHeat(mastery).stroke;
-}

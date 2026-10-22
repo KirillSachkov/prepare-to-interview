@@ -15,9 +15,9 @@ export function heat(mastery: number | null): Heat {
 
 const heats: Record<MasteryBand, Heat> = {
   untouched: { stroke: "#d6d3d1", text: "text-stone-400", label: "не начата" },
-  weak: { stroke: "#e11d48", text: "text-rose-600", label: "плавает" },
-  learning: { stroke: "#d97706", text: "text-amber-600", label: "в процессе" },
-  strong: { stroke: "#059669", text: "text-emerald-600", label: "уверенно" },
+  low: { stroke: "#e11d48", text: "text-rose-600", label: "плавает" },
+  medium: { stroke: "#d97706", text: "text-amber-600", label: "в процессе" },
+  high: { stroke: "#059669", text: "text-emerald-600", label: "уверенно" },
 };
 
 export const percent = (mastery: number | null) => (mastery === null ? null : Math.round(mastery * 100));

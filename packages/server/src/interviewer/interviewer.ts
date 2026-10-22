@@ -6,7 +6,7 @@ import type { ActivityKind } from "../db/schema.ts";
 import type { Domain } from "../domain/domain.ts";
 import type { MockAnswer, MockInterviews } from "../domain/mock.ts";
 import type { CardContext, Practice, SetResult } from "../domain/practice.ts";
-import { appContext } from "../agent/inert-json.ts";
+import { appContext } from "../agent/context-blocks.ts";
 
 export const defaultContentDir = fileURLToPath(new URL("../../../../interviewer", import.meta.url));
 

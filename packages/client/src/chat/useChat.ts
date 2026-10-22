@@ -38,7 +38,9 @@ export function useChat(): ChatState {
             const later = arrived ?? [];
             arrived = undefined;
             setError(undefined);
-            setMessages(later.reduce(upsert, snapshot.messages));
+            // Only messages the snapshot lacks; one it has keeps its copy until its next event.
+            const known = new Set(snapshot.messages.map((m) => m.id));
+            setMessages(later.filter((m) => !known.has(m.id)).reduce(upsert, snapshot.messages));
             setBusy(snapshot.busy);
           })
           .catch((e: unknown) => setError(String(e)));
