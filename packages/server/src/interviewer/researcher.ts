@@ -37,8 +37,8 @@ export interface ResearcherOptions {
   /** Posts an app-composed message into the Chat. */
   post: (text: string) => void;
   /**
-   * While true (a Mock interview runs), nothing interrupts it: a batch that ends meanwhile is no
-   * Activity boundary, and its Chat message and hidden result wait until `release`.
+   * While true (a Mock interview runs), nothing interrupts it: its Chat message and hidden result
+   * wait until `release`. A batch ending during any foreground Activity is no Activity boundary.
    */
   quiet?: () => boolean;
 }
@@ -251,8 +251,9 @@ export class Researcher {
     const counts = this.#counts(activityId);
     if (autoApprove && counts.topics + counts.questions > 0) this.#o.bank.review({ action: "approve", batchId: activityId });
     const text = summary.slice(0, maxSummary);
-    // During a Mock interview the batch is no Activity boundary: rotating the session or starting a review would interrupt it.
-    this.#o.domain.endBackgroundActivity(activityId, status, text, { boundary: !this.#o.quiet?.() });
+    // While the Chat runs a foreground Activity (onboarding, practice, a Mock interview, a review) the batch is no
+    // Activity boundary: rotating the session or starting a review would interrupt it. That Activity's own end rotates.
+    this.#o.domain.endBackgroundActivity(activityId, status, text, { boundary: this.#o.domain.currentActivity() === null });
     this.#o.bank.publish();
     this.#finished.push({ activityId, status, proposedTopics: counts.topics, proposedQuestions: counts.questions, autoApproved: autoApprove, summary: text });
     if (status === "completed") this.#tell(announcement(counts, autoApprove, stopped));

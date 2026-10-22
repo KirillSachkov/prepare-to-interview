@@ -71,6 +71,7 @@ export class Continuity implements SessionPolicy {
     this.#now = options.now;
     this.#practiceInProgress = options.practiceInProgress;
     this.#domain.onActivityCompleted((activity) => this.#boundary(activity));
+    this.#recoverInterrupted();
   }
 
   // Session policy
@@ -226,6 +227,15 @@ export class Continuity implements SessionPolicy {
         if (running()) this.#domain.completeActivity(review.id, "The review turn ended without end_session.");
       },
     });
+  }
+
+  /**
+   * A review is one turn; one the app stopped during can never finish, and while it stayed active
+   * it would hold the boundary rotation and refuse direct saves forever.
+   */
+  #recoverInterrupted(): void {
+    const current = this.#domain.currentActivity();
+    if (current?.kind === "review") this.#domain.completeActivity(current.id, "The app stopped during the review.");
   }
 
   #pendingProposal(proposalId: string) {

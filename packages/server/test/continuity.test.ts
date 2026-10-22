@@ -304,6 +304,21 @@ describe("Agent session rotation", () => {
     expect(contextUris(h.driver().prompts[2])).toEqual(["app://context/briefing", expect.stringMatching(/^app:\/\/context\/practice-set\//)]);
   });
 
+  it("closes a review the app stopped during, so after a restart nothing waits behind it", async () => {
+    const dirs = makeTempDirs();
+    const first = await withTarget(await start([[reply("Привет.")], [{ waitForCancel: true }]], { scriptReviews: true }, dirs));
+    await say(first.server, "Привет");
+    await practise(first, "Подборка");
+    await expect.poll(async () => ((await first.call("get_profile")).data.activity as { kind: string } | null)?.kind).toBe("review");
+    await first.server.close();
+
+    const h = await start([[reply("Продолжим.")]], {}, dirs);
+    expect((await h.call("get_profile")).data.activity).toBeNull();
+    // The boundary rotation is no longer held: the next turn starts a fresh session.
+    await say(h.server, "Что дальше?");
+    expect(chatSessions(h)).toEqual(["start"]);
+  });
+
   it("drops a queued review once another Activity took over, and never rotates mid Practice set", async () => {
     const h = await start([
       [reply("Расскажите о себе.")],

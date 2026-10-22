@@ -269,7 +269,7 @@ export class Domain {
 
   /**
    * Ends a background Activity that is still running. Completing it notifies `onActivityCompleted`
-   * (an Activity boundary) unless `boundary` is false, such as while a Mock interview runs.
+   * (an Activity boundary) unless `boundary` is false, such as while a foreground Activity runs.
    */
   endBackgroundActivity(activityId: string, status: "completed" | "abandoned", summary: string, options: { boundary?: boolean } = {}): void {
     if (status === "completed" && options.boundary !== false) {

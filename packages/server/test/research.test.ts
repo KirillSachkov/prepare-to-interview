@@ -494,6 +494,24 @@ describe("Research Activity", () => {
     expect((await h.call("start_research", {})).isError).toBe(false);
   });
 
+  it("never rotates the Chat's session mid-onboarding when a batch finishes", async () => {
+    const h = await withTarget([[tool("start_activity", { kind: "onboarding" }), reply("Расскажите о новой цели.")], [reply("Записал.")]]);
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Хочу новую цель" } });
+    await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).busy).toBe(false);
+    expect((await h.call("start_research", {})).isError).toBe(false);
+    const texts = async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).messages.map((m) => m.text);
+    await expect.poll(texts).toContain("Исследование завершено: нового для банка не нашлось.");
+
+    await api(h.server, apiPaths.chatMessages, { body: { text: "Senior Go" } });
+    await expect.poll(async () => (await get<ChatSnapshot>(h.server, apiPaths.chat)).busy).toBe(false);
+    const chatSessions = h.driver().sessions.filter((s) => !s.config.persona.startsWith("# Research") && !s.config.persona.startsWith("# Grader"));
+    expect(chatSessions.map((s) => s.action)).toEqual(["start"]);
+    expect(h.reviews).toEqual([]);
+    expect((await h.call("get_profile")).data.activity).toMatchObject({ kind: "onboarding" });
+    // The batch's result still reaches the Interviewer in the onboarding turn.
+    expect(h.driver().prompts[1]!.context?.some((c) => c.uri.startsWith("app://context/research/"))).toBe(true);
+  });
+
   it("needs a Preparation target", async () => {
     const h = await start();
     const result = await h.call("start_research", {});
