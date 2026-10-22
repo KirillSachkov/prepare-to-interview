@@ -1,6 +1,7 @@
 import { eq, inArray } from "drizzle-orm";
 import {
   chatNodeId,
+  type CanvasFocus,
   type CanvasNode,
   type CanvasSnapshot,
   type ChatNode,
@@ -82,6 +83,11 @@ export class Canvas {
   /** Tells live clients about a node that just appeared. */
   added(node: CanvasNode): void {
     this.#events.publish({ type: "canvas.node_added", node });
+  }
+
+  /** Tells live clients to bring something into view and highlight it. */
+  focus(focus: CanvasFocus): void {
+    this.#events.publish({ type: "canvas.focus", focus });
   }
 
   /** Tells live clients about a node whose content changed. */

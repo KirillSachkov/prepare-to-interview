@@ -10,6 +10,7 @@ import {
 } from "@xyflow/react";
 import { useEffect, useState } from "react";
 import { chatNodeId, type PracticeRequest, type PracticeSetNode } from "@prepare-to-interview/shared";
+import { subscribeToEvents } from "../api.ts";
 import { flowNodeTypes, nodeMenu, NotifyContext, SetCollapsedContext, type FlowNode } from "../nodes/flow.tsx";
 import { HistoryDialog } from "../history/HistoryView.tsx";
 import { focusCardEvent } from "../practice/focus.ts";
@@ -38,6 +39,32 @@ const zoomDuration = { duration: 150 };
 
 type Dialog = "shortcuts" | "settings" | "question" | "topic" | "mock" | "history";
 
+/** How long something the Interviewer pointed at stays highlighted. */
+const highlightMs = 4000;
+
+/**
+ * Outlines a Card, a node, or a Topic once it is rendered (React Flow renders only what is in
+ * view, the Skill map loads first), then clears the outline.
+ */
+function highlight(selector: string): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let element: HTMLElement | null = null;
+  const find = (tries: number) => {
+    element = document.querySelector<HTMLElement>(selector);
+    if (!element) {
+      if (tries > 0) timer = setTimeout(() => find(tries - 1), 100);
+      return;
+    }
+    element.dataset.highlighted = "";
+    timer = setTimeout(() => delete element?.dataset.highlighted, highlightMs);
+  };
+  timer = setTimeout(() => find(30), 300);
+  return () => {
+    clearTimeout(timer);
+    if (element) delete element.dataset.highlighted;
+  };
+}
+
 /** The Practice set node a Card belongs to. */
 function setOfCard(nodes: FlowNode[], cardId: string): FlowNode | undefined {
   return nodes.find((n) => n.type === "practice_set" && (n.data.content as PracticeSetNode["data"]).cards.some((c) => c.id === cardId));
@@ -58,6 +85,8 @@ export function CanvasShell() {
   const { active: activeTarget } = useTargets();
   const [skillMap, setSkillMap] = useState(false);
   const [mapTab, setMapTab] = useState<SkillMapTab>("proposed");
+  /** A Topic the Interviewer pointed at; `seq` reopens it when pointed at again. */
+  const [mapTopic, setMapTopic] = useState<{ topicId: string; seq: number } | null>(null);
   const proposed = useProposedCount();
 
   const showChat = () => {
@@ -167,6 +196,36 @@ export function CanvasShell() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // The Interviewer points at a Card, a Practice set, or a Topic (focus_canvas).
+  useEffect(() => {
+    let undo: (() => void) | undefined;
+    const unsubscribe = subscribeToEvents({
+      onOpen: () => undefined,
+      onDisconnect: () => undefined,
+      onEvent: (event) => {
+        if (event.type !== "canvas.focus") return;
+        undo?.();
+        const { focus } = event;
+        if (focus.kind === "topic") {
+          setMapTopic((current) => ({ topicId: focus.topicId, seq: (current?.seq ?? 0) + 1 }));
+          setSkillMap(true);
+          undo = highlight(`[data-topic-id="${focus.topicId}"]`);
+          return;
+        }
+        setSkillMap(false);
+        const node = rf.getNode(focus.setId);
+        if (!node) return;
+        if (node.data.collapsed && focus.cardId) setCollapsed(focus.setId, false);
+        void rf.fitView({ ...fitOptions, nodes: [{ id: focus.setId }], duration: 300 });
+        undo = highlight(focus.cardId ? `[data-card-id="${focus.cardId}"]` : `.react-flow__node[data-id="${focus.setId}"] [data-set-id]`);
+      },
+    });
+    return () => {
+      unsubscribe();
+      undo?.();
+    };
+  }, [rf, setCollapsed]);
+
   // A Card chip in the Chat brings its Practice set into view.
   useEffect(() => {
     const onFocusCard = (event: Event) => {
@@ -260,6 +319,7 @@ export function CanvasShell() {
 
         {skillMap && (
           <SkillMapView
+            focusTopic={mapTopic}
             tab={mapTab}
             setTab={setMapTab}
             practise={(topic) => askForPractice({ kind: "topic", topic })}

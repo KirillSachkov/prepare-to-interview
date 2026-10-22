@@ -317,8 +317,15 @@ export interface ChatSendRequest {
   text: string;
 }
 
+/** What the Interviewer brings into the Candidate's view: a Practice set (and one of its Cards), or a Topic in the Skill map. */
+export type CanvasFocus =
+  | { kind: "practice_set"; setId: string; cardId: string | null }
+  | { kind: "topic"; topicId: string; name: string };
+
 export type ServerEvent =
   | { type: "canvas.node_added"; node: CanvasNode }
+  /** The Interviewer points at something: the client pans to it and highlights it. */
+  | { type: "canvas.focus"; focus: CanvasFocus }
   /** A node's content changed, such as a Card graded; its layout stays as it is. */
   | { type: "canvas.node_updated"; node: CanvasNode }
   | { type: "canvas.node_removed"; nodeId: string }

@@ -504,6 +504,11 @@ export class Domain {
     for (const activity of completed) this.#completed(activity);
   }
 
+  /** A Topic's name as the bank stores it. */
+  topicName(topicId: string): string {
+    return this.#topicNames([topicId]).get(topicId) ?? "";
+  }
+
   /** The Topic id for a name in the bank, if the bank has it. */
   findTopic(name: string): string | null {
     return this.#db.select({ id: topics.id }).from(topics).where(eq(topics.key, normalize(name))).get()?.id ?? null;

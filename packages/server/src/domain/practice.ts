@@ -252,6 +252,18 @@ export class Practice {
     };
   }
 
+  /**
+   * Brings a Practice set on the Canvas, or the set of a Card, into the Candidate's view. A set in
+   * history is refused.
+   */
+  focus(target: { cardId: string } | { setId: string }): { setId: string; cardId: string | null } {
+    const cardId = "cardId" in target ? this.#card(target.cardId).id : null;
+    const setId = "cardId" in target ? this.#card(target.cardId).setId : target.setId;
+    this.#onCanvas(setId);
+    this.#canvas.focus({ kind: "practice_set", setId, cardId });
+    return { setId, cardId };
+  }
+
   /** The prompt of a Card's Question, for references in the Chat. */
   cardPrompt(cardId: string): string | undefined {
     return this.#db

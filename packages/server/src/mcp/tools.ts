@@ -11,6 +11,7 @@ import {
   type PracticeQuestion,
   type TargetDetail,
 } from "../domain/domain.ts";
+import type { Canvas } from "../canvas/canvas.ts";
 import type { Practice } from "../domain/practice.ts";
 import type { Continuity } from "../interviewer/continuity.ts";
 import type { Interviewer } from "../interviewer/interviewer.ts";
@@ -20,6 +21,7 @@ import { mockTools } from "./mock-tools.ts";
 import { defineTool, shortText, type ToolDefinition } from "./tool.ts";
 
 export interface ToolDeps {
+  canvas: Canvas;
   domain: Domain;
   practice: Practice;
   interviewer: Interviewer;
@@ -152,7 +154,7 @@ const queuedOutput = z.strictObject({
 });
 
 /** The app's MCP tool set; every change goes through the domain core, which validates it. */
-export function createTools({ domain, practice, interviewer, continuity, mock }: ToolDeps): ToolDefinition[] {
+export function createTools({ canvas, domain, practice, interviewer, continuity, mock }: ToolDeps): ToolDefinition[] {
   return [
     defineTool({
       name: "get_profile",
@@ -496,6 +498,33 @@ export function createTools({ domain, practice, interviewer, continuity, mock }:
       },
       summarize: (o) =>
         `Placed ${o.kind === "quiz" ? "a Quiz" : "a Practice set"} with ${o.cards.length} Cards on the Canvas (${o.practice_set_id}). The Candidate answers on the Cards; the app grades and tells you the results.${o.skill ? ` Follow this skill:\n\n${o.skill}` : ""}`,
+    }),
+    defineTool({
+      name: "focus_canvas",
+      title: "Show the Candidate a Card, a Practice set, or a Topic",
+      description:
+        "Bring something into the Candidate's view while you talk about it: a Card or a Practice set on the Canvas (the app pans to it and highlights it), or a Topic, which opens in the Skill map. Pass exactly one of card_id, practice_set_id, or topic.",
+      input: z
+        .strictObject({
+          card_id: z.string().min(1).optional().describe("A Card on the Canvas, such as one from place_practice_set."),
+          practice_set_id: z.string().min(1).optional(),
+          topic: topicName.optional().describe("A Topic name from get_progress."),
+        })
+        .refine((i) => [i.card_id, i.practice_set_id, i.topic].filter((v) => v !== undefined).length === 1, { message: "Pass exactly one of card_id, practice_set_id, or topic." }),
+      output: z.strictObject({ shown: z.enum(["card", "practice_set", "topic"]), practice_set_id: z.string().nullable(), topic: z.string().nullable() }),
+      fixHint: 'Pass {"card_id": "..."}, {"practice_set_id": "..."}, or {"topic": "<Topic name>"}.',
+      run: (input) => {
+        if (input.topic !== undefined) {
+          const topicId = domain.findTopic(input.topic);
+          if (!topicId) throw new DomainError(`The bank has no Topic "${input.topic}".`, "Use a Topic name from get_progress.", { kind: "not_found" });
+          const name = domain.topicName(topicId);
+          canvas.focus({ kind: "topic", topicId, name });
+          return { shown: "topic" as const, practice_set_id: null, topic: name };
+        }
+        const shown = practice.focus(input.card_id !== undefined ? { cardId: input.card_id } : { setId: input.practice_set_id ?? "" });
+        return { shown: shown.cardId ? ("card" as const) : ("practice_set" as const), practice_set_id: shown.setId, topic: null };
+      },
+      summarize: (o) => (o.shown === "topic" ? `The Skill map shows Topic "${o.topic ?? ""}" to the Candidate.` : `The Canvas shows the ${o.shown === "card" ? "Card" : "Practice set"} to the Candidate, highlighted.`),
     }),
     ...mockTools({ mock, interviewer }),
     ...continuityTools({ domain, practice, continuity }),

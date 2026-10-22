@@ -21,13 +21,21 @@ export interface SkillMapViewProps {
   notify: (text: string) => void;
   /** A history Card went into the Chat with «Обсудить»: show the Chat. */
   discussed: () => void;
+  /** A Topic the Interviewer pointed at: it opens; a new `seq` opens it again. */
+  focusTopic?: { topicId: string; seq: number } | null;
 }
 
 const legend = [0.2, 0.55, 0.85].map((m) => heat(m));
 
 export function SkillMapView(props: SkillMapViewProps) {
   const { data, error } = useLive(fetchSkillMap);
-  const [openTopic, setOpenTopic] = useState<string | null>(null);
+  const [openTopic, setOpenTopic] = useState<string | null>(props.focusTopic?.topicId ?? null);
+  // A new focus from the Interviewer opens its Topic (state adjusted while rendering, not in an effect).
+  const [seenFocus, setSeenFocus] = useState(props.focusTopic);
+  if (props.focusTopic !== seenFocus) {
+    setSeenFocus(props.focusTopic);
+    if (props.focusTopic) setOpenTopic(props.focusTopic.topicId);
+  }
   const groups = [...new Set((data?.topics ?? []).map((t) => t.group))];
 
   return (

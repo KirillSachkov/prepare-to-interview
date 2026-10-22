@@ -144,3 +144,33 @@ describe("MCP tools to live Canvas", () => {
     await expect(openEvents(server, headers).opened).rejects.toThrow(`upgrade rejected: ${expected}`);
   });
 });
+
+describe("Focusing the Canvas", () => {
+  it("brings a Card, a Practice set, or a Topic into view for the Candidate", async () => {
+    const server = await start();
+    const client = await connectMcp(server);
+    const call = async (args: Record<string, unknown>) => {
+      const result = await client.callTool({ name: "focus_canvas", arguments: args });
+      return { isError: result.isError === true, text: (result.content as { text: string }[])[0]?.text ?? "" };
+    };
+    const placed = (await client.callTool({ name: "place_practice_set", arguments: quizArgs("Indexes") })).structuredContent as {
+      practice_set_id: string;
+      cards: { card_id: string }[];
+    };
+    const events = openEvents(server);
+    await events.opened;
+    const cardId = placed.cards[0]!.card_id;
+
+    expect((await call({ card_id: cardId })).isError).toBe(false);
+    expect(await events.next()).toEqual({ type: "canvas.focus", focus: { kind: "practice_set", setId: placed.practice_set_id, cardId } });
+    expect((await call({ practice_set_id: placed.practice_set_id })).isError).toBe(false);
+    expect(await events.next()).toEqual({ type: "canvas.focus", focus: { kind: "practice_set", setId: placed.practice_set_id, cardId: null } });
+    expect((await call({ topic: "sql" })).isError).toBe(false);
+    expect(await events.next()).toMatchObject({ type: "canvas.focus", focus: { kind: "topic", topicId: expect.any(String) as string, name: "SQL" } });
+
+    expect((await call({})).text).toMatch(/^Invalid input for focus_canvas/);
+    expect((await call({ card_id: cardId, topic: "SQL" })).text).toMatch(/^Invalid input for focus_canvas/);
+    expect((await call({ card_id: "nope" })).text).toMatch(/^No Card with id "nope"/);
+    expect((await call({ topic: "Kafka" })).text).toMatch(/^The bank has no Topic "Kafka"/);
+  });
+});

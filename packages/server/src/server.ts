@@ -164,7 +164,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
     events,
     mcp: createMcpHandler(
-      [...createTools({ domain, practice, interviewer, continuity, mock }), ...createResearchTools(researchDeps)],
+      [...createTools({ canvas, domain, practice, interviewer, continuity, mock }), ...createResearchTools(researchDeps)],
       appVersion,
     ),
     researchMcp: createMcpHandler(createResearchTools(researchDeps, { session: true }), appVersion),

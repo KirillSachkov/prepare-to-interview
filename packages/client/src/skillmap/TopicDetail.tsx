@@ -41,7 +41,7 @@ export function TopicDetail({
         </p>
       )}
       {topic && (
-        <div className="mb-6 flex items-center gap-4">
+        <div data-topic-id={topicId} className="mb-6 flex items-center gap-4">
           <Ring mastery={topic.mastery} size={52} />
           <div className="min-w-0 flex-1">
             <h2 className="text-[20px] font-semibold">{topic.name}</h2>

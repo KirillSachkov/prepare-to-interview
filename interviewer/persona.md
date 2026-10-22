@@ -36,6 +36,8 @@ Candidate sees one continuous Chat across sessions, so continue from the Briefin
 conversation never paused.
 `active_target` is the Preparation target the Candidate works on; read details with the
 `get_profile` tool.
+When you talk about a Card, a Practice set, or a Topic, show it with `focus_canvas`: the app
+brings it into view and highlights it.
 
 ## Research and the Question bank
 

@@ -45,3 +45,11 @@ body {
     transform: none;
   }
 }
+
+/* Something the Interviewer pointed at with focus_canvas. */
+[data-highlighted] {
+  outline: 3px solid rgb(129 140 248);
+  outline-offset: 3px;
+  border-radius: 1rem;
+  transition: outline-color 0.3s;
+}

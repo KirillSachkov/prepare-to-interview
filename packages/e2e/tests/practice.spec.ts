@@ -2,7 +2,8 @@
 // hints, submit with Cmd/Ctrl+Enter, live grades from the app and the Grader, the Chat summary,
 // and the collapse into a result Card.
 import type { Page } from "@playwright/test";
-import { chooseAgent, expect, openCanvas, placePracticeSet, resetChatLayout, test } from "./fixtures.ts";
+import { apiPaths, type CanvasSnapshot, type PracticeSetNode } from "@prepare-to-interview/shared";
+import { agentTurn, apiCall, chooseAgent, expect, openCanvas, placePracticeSet, resetChatLayout, test } from "./fixtures.ts";
 
 const chat = (page: Page) => page.locator('.react-flow__node[data-id="chat"]');
 const practiceSet = (page: Page, title: string) => page.locator(".react-flow__node-practice_set").filter({ hasText: title });
@@ -138,4 +139,20 @@ test("skip, training mode, and «Обсудить» bring a Card into the Chat",
 test("the toolbar asks the Interviewer for today's Practice set", async ({ page }) => {
   await page.getByRole("toolbar", { name: "Панель инструментов" }).getByRole("button", { name: "Подборка на сегодня" }).click();
   await expect(chat(page)).toContainText("Хочу подборку на сегодня.");
+});
+
+test("the Interviewer points at a Card and a Topic: the Canvas pans to it and highlights it", async ({ page, baseURL }) => {
+  await placePracticeSet(baseURL!, { title: "Показать карточку", cards: [singleCard, { ...multiCard, prompt: "Показать: какие метрики у ретривера?" }] });
+  const snapshot = (await apiCall(baseURL!, apiPaths.canvas)) as CanvasSnapshot;
+  const set = snapshot.nodes.find((n) => n.kind === "practice_set" && n.data.title === "Показать карточку") as PracticeSetNode;
+  const cardId = set.data.cards[1]!.id;
+  await agentTurn(baseURL!, [{ callTool: { server: "interview", tool: "focus_canvas", arguments: { card_id: cardId } } }]);
+  const card = page.locator(`[data-card-id="${cardId}"]`);
+  await expect(card).toBeInViewport();
+  await expect(card).toHaveAttribute("data-highlighted", "");
+
+  await agentTurn(baseURL!, [{ callTool: { server: "interview", tool: "focus_canvas", arguments: { topic: "Evals" } } }]);
+  const map = page.getByRole("region", { name: "Карта навыков" });
+  await expect(map.getByRole("heading", { name: "Evals" })).toBeVisible();
+  await expect(map.locator("[data-topic-id]")).toHaveAttribute("data-highlighted", "");
 });
