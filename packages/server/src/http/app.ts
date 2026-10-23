@@ -6,6 +6,9 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   apiPaths,
+  agentIds,
+  type AgentId,
+  type AgentModelsResponse,
   bankPaths,
   cardPaths,
   maxAnswerLength,
@@ -19,6 +22,7 @@ import {
   type TopicsResponse,
 } from "@prepare-to-interview/shared";
 import type { AgentDetector } from "../agent/detect.ts";
+import { describeAgentError, toAgentError } from "../agent/errors.ts";
 import { UnknownNodeError, type Canvas } from "../canvas/canvas.ts";
 import { ChatBusyError, type Chat } from "../chat/chat.ts";
 import { revealModes } from "../db/schema.ts";
@@ -47,6 +51,7 @@ export interface AppDeps {
   mock: MockRunner;
   settings: Settings;
   detectAgents: AgentDetector;
+  listAgentModels: (agent: AgentId) => Promise<AgentModelsResponse>;
   events: EventBus;
   /** MCP endpoint of the Chat's Agent session, with every tool. */
   mcp: McpHandler;
@@ -197,6 +202,17 @@ export function createApp(deps: AppDeps): Hono {
   app.get(apiPaths.agents, (c) =>
     c.json({ agents: deps.detectAgents(), settings: deps.settings.agentSettings() } satisfies AgentsResponse),
   );
+  app.get("/api/agents/:agent/models", async (c) => {
+    const parsed = z.enum(agentIds).safeParse(c.req.param("agent"));
+    if (!parsed.success) return c.json({ error: "Unknown agent." }, 400);
+    const agent = deps.detectAgents().find((a) => a.id === parsed.data);
+    if (!agent?.installed) return c.json({ error: `${agent?.label ?? parsed.data} is not installed.` }, 400);
+    try {
+      return c.json(await deps.listAgentModels(parsed.data));
+    } catch (error) {
+      return c.json({ error: describeAgentError(parsed.data, toAgentError(error)) }, 502);
+    }
+  });
   app.put(apiPaths.agentSettings, async (c) => {
     const body = agentSettingsUpdate.safeParse(await readJson(c.req.raw));
     if (!body.success) {

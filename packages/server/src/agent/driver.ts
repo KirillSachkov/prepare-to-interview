@@ -1,5 +1,6 @@
 // One interface over every supported coding agent (ADR-0001). Real drivers translate it to ACP
 // per agent; the fake driver replays scripted events for tests.
+import type { AgentModelsResponse } from "@prepare-to-interview/shared";
 
 /** An MCP server an Agent session connects to; mirrors ACP's HTTP MCP server entry. */
 export interface McpServerConfig {
@@ -81,6 +82,8 @@ export interface AgentSession {
 export interface AgentDriver {
   /** Agent identifier, such as `claude`, `codex`, `opencode`, or `fake`. */
   readonly agent: string;
+  /** Discovers model choices without prompting or touching existing Agent sessions. */
+  listModels(config: SessionConfig): Promise<AgentModelsResponse>;
   startSession(config: SessionConfig): Promise<AgentSession>;
   /** Resumes an earlier session by id, for example after an app restart; replayed history is dropped. */
   loadSession(id: string, config: SessionConfig): Promise<AgentSession>;

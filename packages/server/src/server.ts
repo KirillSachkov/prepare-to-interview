@@ -162,6 +162,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     mock,
     settings,
     detectAgents: options.detectAgents ?? (() => detectInstalledAgents()),
+    listAgentModels: (agent) => drivers.get(agent).listModels({
+      ...interviewer.sessionConfig(undefined), allowedBuiltins: [], mcpServers: [],
+    }),
     events,
     mcp: createMcpHandler(
       [...createTools({ canvas, domain, practice, interviewer, continuity, mock }), ...createResearchTools(researchDeps)],

@@ -244,6 +244,17 @@ export const agentLabels: Record<AgentId, string> = {
   opencode: "OpenCode",
 };
 
+export const agentPaths = {
+  /** GET the models advertised by an installed agent over ACP. */
+  models: (agent: AgentId) => `/api/agents/${agent}/models`,
+};
+
+export interface AgentModelsResponse {
+  models: { id: string; label: string }[];
+  /** The model selected by the agent before applying the app's saved preference. */
+  defaultModel: string | null;
+}
+
 /** Whether a supported coding agent is installed on the Candidate's machine. */
 export interface AgentAvailability {
   id: AgentId;

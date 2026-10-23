@@ -20,6 +20,9 @@ body {
   outline-offset: 4px;
   border-radius: 22px;
 }
+.canvas-shell .react-flow__node.selected:has(> .chat-panel) {
+  border-radius: 12px;
+}
 .canvas-shell .react-flow__selection {
   background: rgb(99 102 241 / 0.06);
   border: 1px solid rgb(129 140 248);
