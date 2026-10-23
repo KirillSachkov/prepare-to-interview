@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import {
   apiPaths,
+  agentPaths,
   type AgentAvailability,
   type AgentsResponse,
   type ChatSnapshot,
@@ -97,6 +98,18 @@ function openEvents(server: RunningServer) {
 }
 
 const say = (text: string) => ({ event: { type: "message_chunk" as const, text } });
+
+it("lists an installed agent's available models without starting a Chat Activity", async () => {
+  const { server, drivers } = await start({}, undefined, (driver) => {
+    driver.models = { models: [{ id: "fast", label: "Fast model" }], defaultModel: "fast" };
+  });
+  expect(await api(server, agentPaths.models("claude"))).toEqual({
+    status: 200,
+    body: { models: [{ id: "fast", label: "Fast model" }], defaultModel: "fast" },
+  });
+  expect(drivers.get("claude")?.sessions).toEqual([]);
+  expect((await api(server, agentPaths.models("opencode"))).status).toBe(400);
+});
 
 describe("Chat with the Interviewer", () => {
   it("streams the reply live, passes hidden state with every turn, and stores the conversation", async () => {

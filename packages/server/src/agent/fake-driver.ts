@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { AgentModelsResponse } from "@prepare-to-interview/shared";
 import type {
   AgentDriver,
   AgentEvent,
@@ -43,6 +44,7 @@ export class FakeDriver implements AgentDriver {
   readonly #respond: FakeResponder | undefined;
   /** Errors to throw from the next `startSession` or `loadSession` calls. */
   readonly sessionFailures: Error[] = [];
+  models: AgentModelsResponse = { models: [], defaultModel: null };
   #sessionCount = 0;
   #toolCalls = 0;
   disposed = false;
@@ -55,6 +57,10 @@ export class FakeDriver implements AgentDriver {
   /** Adds turns for later prompts, for example after a restart with a new driver. */
   script(...turns: FakeTurn[]): void {
     this.#turns.push(...turns);
+  }
+
+  listModels(): Promise<AgentModelsResponse> {
+    return Promise.resolve(this.models);
   }
 
   startSession(config: SessionConfig): Promise<AgentSession> {

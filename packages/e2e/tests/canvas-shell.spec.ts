@@ -71,6 +71,29 @@ test("chrome matches variant A", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Горячие клавиши" })).toBeVisible();
 });
 
+test("selected Interviewer has one rounded contour and still resizes", async ({ page }, testInfo) => {
+  const chat = chatNode(page);
+  await chat.getByText("Интервьюер", { exact: true }).click();
+  await expect(chat).toHaveClass(/selected/);
+  const lines = chat.locator(".react-flow__resize-control.line");
+  await expect(lines).toHaveCount(4);
+  for (const line of await lines.all()) await expect(line).toHaveCSS("border-color", "rgba(0, 0, 0, 0)");
+  const panelRadius = await chat.locator(":scope > div").first().evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+  await expect(chat).toHaveCSS("border-top-left-radius", panelRadius);
+  const before = await boxOf(chat);
+  const edge = await boxOf(chat.locator(".react-flow__resize-control.line.right"));
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 80, edge.y + edge.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await boxOf(chat)).width).toBeGreaterThan(before.width + 50);
+  await page.screenshot({ path: testInfo.outputPath("interviewer-selection.png") });
+  await page.mouse.move(edge.x + 80, edge.y + edge.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2, { steps: 8 });
+  await page.mouse.up();
+});
+
 test("mouse navigation: scroll pans, modifier-scroll zooms, space, middle, and Hand drags pan", async ({ page }) => {
   await page.mouse.move(emptySpot.x, emptySpot.y);
   let before = await viewport(page);
@@ -152,7 +175,7 @@ test("tool, grid, Chat, Zen, and shortcuts hotkeys", async ({ page }) => {
   await page.keyboard.press("c");
   await expect(chatNode(page)).toBeVisible();
   // The shown Chat may take focus for typing; click the Canvas to leave it before more hotkeys.
-  await expect(chatNode(page)).toContainText("Агент для программирования");
+  await expect(chatNode(page).getByRole("group", { name: "Агент", exact: true })).toBeVisible();
   await page.mouse.click(emptySpot.x, emptySpot.y);
 
   // K switches to the Skill map and back.

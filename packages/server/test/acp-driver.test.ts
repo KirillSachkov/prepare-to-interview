@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import * as acp from "@agentclientprotocol/sdk/unstable";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AcpDriver } from "../src/agent/acp-driver.ts";
 import type { AgentEvent, SessionConfig } from "../src/agent/driver.ts";
 import { AgentError } from "../src/agent/errors.ts";
@@ -45,6 +45,69 @@ function collect() {
 }
 
 describe("ACP driver: per-agent translation", () => {
+  it("times out model discovery and stops its process", async () => {
+    vi.useFakeTimers();
+    cleanups.push(() => vi.useRealTimers());
+    const { driver, kills } = setup("claude", { newSessionWait: new Promise(() => undefined) });
+    const result = expect(driver.listModels(config)).rejects.toThrow("Timed out loading available models");
+    await vi.advanceTimersByTimeAsync(20_000);
+    await result;
+    expect(kills).toEqual([1]);
+  });
+
+  it("stops a pending discovery when the app closes", async () => {
+    const { driver, kills, requests } = setup("claude", { newSessionWait: new Promise(() => undefined) });
+    const result = expect(driver.listModels(config)).rejects.toThrow();
+    await expect.poll(() => requests("session/new").length).toBe(1);
+    await driver.dispose();
+    await result;
+    expect(kills.length).toBeGreaterThan(0);
+  });
+
+  it("cleans up discovery after an agent login error", async () => {
+    const { driver, kills } = setup("claude", { newSessionError: acp.RequestError.authRequired() });
+    await expect(driver.listModels(config)).rejects.toMatchObject({ kind: "not_logged_in" });
+    expect(kills).toEqual([1]);
+  });
+
+  it("offers only the agent default when ACP has no model selector", async () => {
+    const { driver } = setup("claude", { configOptions: [] });
+    expect(await driver.listModels(config)).toEqual({ models: [], defaultModel: null });
+  });
+
+  it("discovers the selected agent's model names without prompting or changing a running session", async () => {
+    const { driver, requests, kills } = setup("claude", {
+      configOptions: [{
+        type: "select", id: "llm", category: "model", name: "Model", currentValue: "fast",
+        options: [{ group: "provider", name: "Provider", options: [
+          { value: "fast", name: "Fast model" }, { value: "deep", name: "Deep model" },
+        ] }],
+      }],
+    });
+    expect(await driver.listModels(config)).toEqual({
+      models: [{ id: "fast", label: "Fast model" }, { id: "deep", label: "Deep model" }],
+      defaultModel: "fast",
+    });
+    expect(requests("session/prompt")).toEqual([]);
+    expect(requests("session/set_config_option")).toEqual([]);
+    expect(kills).toEqual([1]);
+  });
+
+  it("discovers flat model options, leaves the active session usable, and refreshes on a later request", async () => {
+    const { driver, launches, kills } = setup("claude");
+    const session = await driver.startSession(config);
+    const first = driver.listModels(config);
+    const concurrent = driver.listModels(config);
+    expect(await first).toEqual({ models: [{ id: "a", label: "a" }, { id: "b", label: "b" }], defaultModel: "a" });
+    await concurrent;
+    expect(launches).toHaveLength(2);
+    expect(kills).toEqual([2]);
+    expect(await session.prompt({ text: "hi" }, () => undefined)).toEqual({ stopReason: "end_turn" });
+    await driver.listModels(config);
+    expect(launches).toHaveLength(3);
+    expect(kills).toEqual([2, 3]);
+  });
+
   it("Claude: overrides the system prompt, allows only web tools plus app MCP, drops user settings and connectors", async () => {
     const { driver, launches, requests } = setup("claude");
     await driver.startSession({ ...config, model: "haiku" });

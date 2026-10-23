@@ -96,7 +96,9 @@ export async function openCanvas(page: Page): Promise<void> {
   const chat = page.locator('.react-flow__node[data-id="chat"]');
   await expect(chat).toBeVisible();
   // The Chat settles on its agent settings (no agent chosen) or its thread; until then its composer may hold focus.
-  if (!(await chat.textContent())?.includes("развернуть")) await expect(chat).toContainText(/Агент для программирования|на Claude Code/);
+  if (!(await chat.textContent())?.includes("развернуть")) {
+    await expect(chat.getByRole("group", { name: "Агент", exact: true }).or(chat.getByText(/^на (Claude Code|Codex|OpenCode)$/)).first()).toBeVisible();
+  }
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
   });

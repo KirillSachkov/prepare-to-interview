@@ -67,8 +67,8 @@ export function ChatNode({ selected }: { selected: boolean }) {
   });
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-stone-300 bg-white shadow-md">
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={320} />
+    <div className="chat-panel flex h-full w-full flex-col overflow-hidden rounded-xl border border-stone-300 bg-white shadow-md">
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={320} lineStyle={{ borderColor: "transparent" }} />
       <header className={`${chatDragHandleClass} flex cursor-grab items-center justify-between border-b border-stone-200 px-3 py-2`}>
         <div>
           <div className="text-sm font-medium text-stone-900">Интервьюер</div>

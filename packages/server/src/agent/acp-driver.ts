@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk/unstable";
-import { sessionStateUri, type AgentId } from "@prepare-to-interview/shared";
+import { sessionStateUri, type AgentId, type AgentModelsResponse } from "@prepare-to-interview/shared";
 import type { AgentDriver, AgentEvent, AgentSession, SessionConfig, TurnInput, TurnResult } from "./driver.ts";
 import { AgentError, toAgentError } from "./errors.ts";
 import { matchMcpTool } from "./tool-names.ts";
@@ -51,6 +51,8 @@ export class AcpDriver implements AgentDriver {
   readonly #profile: AcpProfile;
   readonly #launcher: Launcher;
   readonly #connections = new Map<string, Promise<AgentConnection>>();
+  readonly #discoveries = new Map<string, Promise<AgentModelsResponse>>();
+  readonly #discoveryProcesses = new Set<AgentProcess>();
 
   constructor(profile: AcpProfile, launcher: Launcher = spawnLauncher) {
     this.agent = profile.agent;
@@ -63,12 +65,53 @@ export class AcpDriver implements AgentDriver {
     return connection.newSession(config);
   }
 
+  listModels(config: SessionConfig): Promise<AgentModelsResponse> {
+    const key = JSON.stringify(config);
+    let pending = this.#discoveries.get(key);
+    if (!pending) {
+      pending = this.#discoverModels(config).finally(() => this.#discoveries.delete(key));
+      this.#discoveries.set(key, pending);
+    }
+    return pending;
+  }
+
+  async #discoverModels(config: SessionConfig): Promise<AgentModelsResponse> {
+    // A separate process keeps discovery from changing or closing any Activity's sessions.
+    let process: AgentProcess | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const discover = async () => {
+      const connection = await AgentConnection.open(this.#profile, this.#profile.launch(config), (spec) => {
+        process = this.#launcher(spec);
+        this.#discoveryProcesses.add(process);
+        return process;
+      }, () => undefined);
+      return connection.listModels(config);
+    };
+    try {
+      return await Promise.race([
+        discover(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new AgentError("failed", "Timed out loading available models")), 20_000);
+        }),
+      ]);
+    } catch (error) {
+      throw toAgentError(error);
+    } finally {
+      clearTimeout(timer);
+      process?.kill();
+      await process?.exited;
+      if (process) this.#discoveryProcesses.delete(process);
+    }
+  }
+
   async loadSession(id: string, config: SessionConfig): Promise<AgentSession> {
     const connection = await this.#connection(config);
     return connection.loadSession(id, config);
   }
 
   async dispose(): Promise<void> {
+    for (const process of this.#discoveryProcesses) process.kill();
+    await Promise.allSettled(this.#discoveries.values());
     const connections = [...this.#connections.values()];
     this.#connections.clear();
     for (const pending of connections) {
@@ -164,6 +207,21 @@ class AgentConnection {
     } catch (error) {
       throw toAgentError(error);
     }
+  }
+
+  async listModels(config: SessionConfig): Promise<AgentModelsResponse> {
+    const response = await this.#connection.agent.request("session/new", {
+      cwd: this.#spec.cwd,
+      mcpServers: [],
+      ...this.#profile.sessionParams(config),
+    });
+    const option = response.configOptions?.find((o) => o.category === "model" || o.id === "model");
+    if (!option || option.type !== "select") return { models: [], defaultModel: null };
+    const choices = option.options.flatMap((entry) => "group" in entry ? entry.options : [entry]);
+    return {
+      models: choices.map((choice) => ({ id: choice.value, label: choice.name })),
+      defaultModel: option.currentValue,
+    };
   }
 
   async loadSession(id: string, config: SessionConfig): Promise<AgentSession> {

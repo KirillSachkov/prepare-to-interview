@@ -21,6 +21,8 @@ export interface FakeAcpAgentOptions {
   configOptions?: acp.SessionConfigOption[];
   /** Thrown from `session/new`, for example `acp.RequestError.authRequired()`. */
   newSessionError?: Error;
+  /** An adapter stalled while creating a discovery session. */
+  newSessionWait?: Promise<void>;
   /** Updates replayed during `session/load`, as agents replay history. */
   replay?: acp.SessionUpdate[];
   onPrompt?: (ctx: PromptContext) => Promise<acp.StopReason | undefined>;
@@ -71,8 +73,9 @@ export function fakeAcpAgent(options: FakeAcpAgentOptions = {}) {
           authMethods: [],
         };
       })
-      .onRequest("session/new", ({ params }) => {
+      .onRequest("session/new", async ({ params }) => {
         record("session/new", params);
+        await options.newSessionWait;
         if (options.newSessionError) throw options.newSessionError;
         return { sessionId: `session-${processId}-${++sessions}`, configOptions };
       })
