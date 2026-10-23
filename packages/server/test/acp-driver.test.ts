@@ -47,7 +47,7 @@ function collect() {
 describe("ACP driver: per-agent translation", () => {
   it("times out model discovery and stops its process", async () => {
     vi.useFakeTimers();
-    cleanups.push(() => vi.useRealTimers());
+    cleanups.push(() => { vi.useRealTimers(); });
     const { driver, kills } = setup("claude", { newSessionWait: new Promise(() => undefined) });
     const result = expect(driver.listModels(config)).rejects.toThrow("Timed out loading available models");
     await vi.advanceTimersByTimeAsync(20_000);

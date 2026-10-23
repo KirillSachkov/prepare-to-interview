@@ -33,12 +33,14 @@ test("loading an earlier agent cannot replace the newly selected agent's models"
       { id: "codex", label: "Codex", installed: true, detail: "Installed" },
     ], settings: { agent: "claude", models: { claude: "deep", codex: "code" } },
   } }));
-  let release = () => undefined;
+  let release: () => void = () => undefined;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const earlier: Promise<void>[] = [];
   await page.route(`**${agentPaths.models("claude")}`, async (route) => {
-    await gate;
-    const response = route.fulfill({ json: { models: [{ id: "deep", label: "Deep model" }], defaultModel: "deep" } });
+    const response = (async () => {
+      await gate;
+      await route.fulfill({ json: { models: [{ id: "deep", label: "Deep model" }], defaultModel: "deep" } });
+    })();
     earlier.push(response);
     await response;
   });
